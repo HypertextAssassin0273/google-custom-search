@@ -2,90 +2,147 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Google Search Clone</title>
+    
+    <!-- Bootstrap CDN for better UI -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        #searchResults { margin-top: 20px; }
-        .result-item { margin-bottom: 15px; padding: 10px; border-bottom: 1px solid #ccc; }
-        a { text-decoration: none; color: blue; }
-        a:hover { text-decoration: underline; }
-        .buttons { margin-top: 20px; }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            padding-top: 50px;
+        }
+        .container {
+            max-width: 800px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        #searchResults .result-item {
+            padding: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        #searchResults .result-item:last-child {
+            border-bottom: none;
+        }
+        .result-item a {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1a0dab;
+            text-decoration: none;
+        }
+        .result-item a:hover {
+            text-decoration: underline;
+        }
+        .result-item p {
+            margin: 5px 0;
+            color: #555;
+        }
+        .buttons {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+        }
+        #loading {
+            display: none;
+            text-align: center;
+            font-size: 18px;
+            color: #007bff;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
 
-    <h2>Google Custom Search</h2>
-    <input type="text" id="searchQuery" placeholder="Enter search term">
-    <button onclick="performSearch(1)">Search</button>
+<div class="container">
+    <h2 class="text-center">Google Custom Search</h2>
+    
+    <div class="input-group mb-3">
+        <input type="text" id="searchQuery" class="form-control" placeholder="Enter search term">
+        <button class="btn btn-primary" onclick="performSearch(1)">Search</button>
+    </div>
 
+    <div id="loading">Loading results...</div>
+    
     <div id="searchResults"></div>
 
     <div class="buttons">
-        <button id="prevButton" onclick="prevPage()" disabled>Previous</button>
-        <button id="nextButton" onclick="nextPage()" disabled>Next</button>
+        <button id="prevButton" class="btn btn-secondary" onclick="prevPage()" disabled>Previous</button>
+        <button id="nextButton" class="btn btn-primary" onclick="nextPage()" disabled>Next</button>
     </div>
+</div>
 
-    <script>
-        let currentQuery = "";
-        let currentStart = 1;
-        let nextStart = null;
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
-        function performSearch(start) {
-            currentQuery = document.getElementById("searchQuery").value.trim();
-            if (!currentQuery) {
-                alert("Please enter a search term!");
-                return;
-            }
+<script>
+    let currentQuery = "";
+    let currentStart = 1;
+    let nextStart = null;
 
-            fetch(`/search?q=${encodeURIComponent(currentQuery)}&start=${start}`)
-                .then(response => response.json())
-                .then(data => {
-                    let resultsDiv = document.getElementById("searchResults");
-                    resultsDiv.innerHTML = "";
-
-                    if (!data.results.length) {
-                        resultsDiv.innerHTML = "<p>No results found.</p>";
-                        return;
-                    }
-
-                    data.results.forEach(item => {
-                        let div = document.createElement("div");
-                        div.className = "result-item";
-                        div.innerHTML = `
-                            <a href="${item.link}" target="_blank"><h4>${item.title}</h4></a>
-                            <p>${item.snippet}</p>
-                        `;
-                        resultsDiv.appendChild(div);
-                    });
-
-                    // Update pagination
-                    currentStart = start;
-                    nextStart = data.next_start || null;
-                    updatePaginationButtons();
-                })
-                .catch(error => console.error("Error fetching search results:", error));
+    function performSearch(start) {
+        currentQuery = document.getElementById("searchQuery").value.trim();
+        if (!currentQuery) {
+            alert("Please enter a search term!");
+            return;
         }
 
-        function updatePaginationButtons() {
-            console.log("[DEBUG]: updatePaginationButtons() used; ", currentStart,",", nextStart);
-            document.getElementById("prevButton").disabled = currentStart <= 1;
-            document.getElementById("nextButton").disabled = nextStart === null;
-        }
+        document.getElementById("loading").style.display = "block";  // Show loading message
+        document.getElementById("searchResults").innerHTML = "";  // Clear previous results
 
-        function nextPage() {
-            console.log("[DEBUG]: nextPage() used; ", nextStart);
-            if (nextStart) {
-                performSearch(nextStart);
-            }
-        }
+        fetch(`/search?q=${encodeURIComponent(currentQuery)}&start=${start}`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("loading").style.display = "none";  // Hide loading message
+                let resultsDiv = document.getElementById("searchResults");
+                resultsDiv.innerHTML = "";
 
-        function prevPage() {
-            console.log("[DEBUG]: prevPage() used; ", currentStart);
-            if (currentStart > 1) {
-                performSearch(currentStart - 10);
-            }
+                if (!data.results.length) {
+                    resultsDiv.innerHTML = "<p class='text-danger'>No results found.</p>";
+                    return;
+                }
+
+                data.results.forEach(item => {
+                    let div = document.createElement("div");
+                    div.className = "result-item";
+                    div.innerHTML = `
+                        <a href="${item.link}" target="_blank">${item.title}</a>
+                        <p>${item.snippet}</p>
+                    `;
+                    resultsDiv.appendChild(div);
+                });
+
+                // Update pagination
+                currentStart = start;
+                nextStart = data.next_start || null;
+                updatePaginationButtons();
+            })
+            .catch(error => {
+                document.getElementById("loading").style.display = "none";
+                console.error("Error fetching search results:", error);
+            });
+    }
+
+    function updatePaginationButtons() {
+        document.getElementById("prevButton").disabled = currentStart <= 1;
+        document.getElementById("nextButton").disabled = nextStart === null;
+    }
+
+    function nextPage() {
+        if (nextStart) {
+            performSearch(nextStart);
         }
-    </script>
+    }
+
+    function prevPage() {
+        if (currentStart > 1) {
+            performSearch(currentStart - 10);
+        }
+    }
+</script>
 
 </body>
 </html>

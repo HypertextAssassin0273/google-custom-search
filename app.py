@@ -15,19 +15,22 @@ def google_search(query, start=1):
         "key": API_KEY,
         "cx": SEARCH_ENGINE_ID,
         "q": query,
-        "start": start
+        "start": start,
+        # "exactTerms": query,  # Forces exact match
+        # "filter": 1           # Removes duplicate results
     }
     
     response = requests.get(url, params=params)
     results = response.json()
-
-    app.logger.info(f"[DEBUG]: response={results}\n----------\n")
+    # app.logger.info(f"[DEBUG]: response={results}\n----------\n")
 
     # Extract search results
     items = extract_results(results)
+    app.logger.info(f"[DEBUG]: items={items}\n----------\n")
 
     # Determine next page index
     next_start = get_next_start(results)
+    # app.logger.info(f"[DEBUG]: next_start={next_start}\n----------\n")
 
     return items, next_start
 
@@ -67,7 +70,6 @@ def search():
         return jsonify({"error": "No search query provided"}), 400
     
     results, next_start = google_search(query, start)
-    app.logger.info(f"[DEBUG]: results={results}, next_start={next_start}")
     return jsonify({"results": results, "next_start": next_start})
 
 if __name__ == "__main__":
