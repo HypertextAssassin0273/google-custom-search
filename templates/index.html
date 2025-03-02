@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Google Search Clone</title>
     
-    <!-- Bootstrap CDN for better UI -->
+    <!-- Bootstrap CDN -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 
     <style>
@@ -28,18 +28,26 @@
         #searchResults .result-item:last-child {
             border-bottom: none;
         }
-        .result-item a {
+        .result-title {
             font-size: 18px;
             font-weight: bold;
             color: #1a0dab;
             text-decoration: none;
+            display: block;
         }
-        .result-item a:hover {
+        .result-title:hover {
             text-decoration: underline;
         }
-        .result-item p {
-            margin: 5px 0;
+        .result-link {
+            color: #006621;  /* Google-style green link */
+            font-size: 14px;
+            margin-bottom: 5px;
+            display: block;
+            text-decoration: none;
+        }
+        .result-snippet {
             color: #555;
+            font-size: 14px;
         }
         .buttons {
             margin-top: 20px;
@@ -109,8 +117,9 @@
                     let div = document.createElement("div");
                     div.className = "result-item";
                     div.innerHTML = `
-                        <a href="${item.link}" target="_blank">${item.title}</a>
-                        <p>${item.snippet}</p>
+                        <a href="${item.link}" class="result-link" target="_blank">${item.link}</a>
+                        <a href="${item.link}" class="result-title" target="_blank">${item.title}</a>
+                        <p class="result-snippet">${item.snippet}</p>
                     `;
                     resultsDiv.appendChild(div);
                 });
