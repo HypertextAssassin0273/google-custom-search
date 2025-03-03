@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
-import os, requests
+import os, requests, re
 # import json # [TEMP]
 
 app = Flask(__name__)
@@ -115,11 +115,22 @@ def proxy():
         return "Error: No URL provided", 400
 
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
-        response = requests.get(url, headers=headers, timeout=5)
-        return response.text
+        response = requests.get(
+            url, 
+            headers={ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }, 
+            timeout=5
+        )
+        
+        if response.status_code != 200:
+            return "Error fetching page", 500
+        
+        html = response.text
+        domain = re.match(r"https?://[^/]+", url).group(0)  # [INFO]: extract base domain
+
+        # Fix relative links by injecting <base> tag in <head> section of HTML
+        html = re.sub(r"(<head[^>]*>)", rf"\1<base href='{domain}/'>", html, count=1)
+
+        return html
     
     except requests.exceptions.RequestException:
         return "Error fetching page", 500
