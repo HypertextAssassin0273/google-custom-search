@@ -162,7 +162,8 @@
 
     function preloadPage(url) {
         if (!preloadedPages[url]) {
-            fetch(url)
+            let proxyUrl = `/proxy?url=${encodeURIComponent(url)}`;
+            fetch(proxyUrl)
                 .then(response => response.text())
                 .then(html => { preloadedPages[url] = html; })
                 .catch(error => console.error("Error preloading:", error));
@@ -173,7 +174,7 @@
         if (preloadedPages[url]) {
             document.getElementById("previewFrame").srcdoc = preloadedPages[url];
         } else {
-            document.getElementById("previewFrame").src = url;
+            document.getElementById("previewFrame").src = `/proxy?url=${encodeURIComponent(url)}`;
         }
     }
 

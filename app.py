@@ -107,6 +107,23 @@ def search():
         "search_time": search_time
     })
 
+@app.route("/proxy")
+def proxy():
+    """Proxy endpoint to fetch and serve pages to bypass CORS issues."""
+    url = request.args.get("url")
+    if not url:
+        return "Error: No URL provided", 400
+
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        }
+        response = requests.get(url, headers=headers, timeout=5)
+        return response.text
+    
+    except requests.exceptions.RequestException:
+        return "Error fetching page", 500
+
 
 if __name__ == "__main__":
     app.run(debug=True)
