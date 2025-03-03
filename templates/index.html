@@ -3,85 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Google Search Clone</title>
+    <title>Google Custom Search</title>
     
     <!-- Bootstrap CDN -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f8f9fa;
-            padding-top: 50px;
-        }
-        .container {
-            max-width: 800px;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        #searchResults .result-item {
-            padding: 15px;
-            border-bottom: 1px solid #ddd;
-        }
-        #searchResults .result-item:last-child {
-            border-bottom: none;
-        }
-        .result-title {
-            font-size: 18px;
-            font-weight: bold;
-            color: #1a0dab;
-            text-decoration: none;
-            display: block;
-        }
-        .result-title:hover {
-            text-decoration: underline;
-        }
-        .result-link {
-            color: #006621;  /* Google-style green link */
-            font-size: 14px;
-            margin-bottom: 5px;
-            display: block;
-            text-decoration: none;
-        }
-        .result-snippet {
-            color: #555;
-            font-size: 14px;
-        }
-        .buttons {
-            margin-top: 20px;
-            display: flex;
-            justify-content: space-between;
-        }
-        #loading {
-            display: none;
-            text-align: center;
-            font-size: 18px;
-            color: #007bff;
-            margin-top: 10px;
-        }
-    </style>
+        .result-group { margin-bottom: 20px; }
+        .result-domain a { font-size: 18px; color: #093; }
+        .nested-results { list-style: none; padding-left: 10px; }
+        .nested-results li { margin-bottom: 10px; }
+        .result-title { font-size: 20px; color: #15c; text-decoration: none; }
+        .result-title:hover { text-decoration: underline; }
+        .result-snippet { font-size: 14px; color: #333; }
+        .pagination-container { display: flex; justify-content: center; align-items: center; margin-top: 20px; }
+        .pagination button { margin: 0 5px; }
+    </style>    
 </head>
 <body>
 
-<div class="container">
+<div class="container mt-4">
     <h2 class="text-center">Google Custom Search</h2>
     
     <div class="input-group mb-3">
         <input type="text" id="searchQuery" class="form-control" placeholder="Enter search term">
         <button class="btn btn-primary" onclick="performSearch(1)">Search</button>
     </div>
-
-    <div id="loading">Loading results...</div>
     
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <span id="totalResults"></span>
+        <select id="sortBy" class="form-select w-auto" onchange="performSearch(1)">
+            <option value="" selected>Sort by: Relevance</option>
+            <option value="date">Sort by: Date</option>
+        </select>
+    </div>
+
+    <div id="loading" style="display: none;">Loading...</div>
     <div id="searchResults"></div>
 
-    <div class="buttons">
-        <button id="prevButton" class="btn btn-secondary" onclick="prevPage()" disabled>Previous</button>
-        <button id="nextButton" class="btn btn-primary" onclick="nextPage()" disabled>Next</button>
+    <div class="pagination-container">
+        <button id="prevButton" class="btn btn-secondary" onclick="prevPage()" disabled>Prev</button>
+        <div id="pageNumbers"></div>
+        <button id="nextButton" class="btn btn-secondary" onclick="nextPage()" disabled>Next</button>
     </div>
-</div>
 
 <!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -90,66 +54,96 @@
     let currentQuery = "";
     let currentStart = 1;
     let nextStart = null;
+    let sortBy = "";
 
     function performSearch(start) {
         currentQuery = document.getElementById("searchQuery").value.trim();
+        sortBy = document.getElementById("sortBy").value;
+
         if (!currentQuery) {
             alert("Please enter a search term!");
             return;
         }
 
-        document.getElementById("loading").style.display = "block";  // Show loading message
-        document.getElementById("searchResults").innerHTML = "";  // Clear previous results
+        document.getElementById("loading").style.display = "block";
+        document.getElementById("searchResults").innerHTML = "";
 
-        fetch(`/search?q=${encodeURIComponent(currentQuery)}&start=${start}`)
+        fetch(`/search?q=${encodeURIComponent(currentQuery)}&start=${start}&sort_by=${sortBy}`)
             .then(response => response.json())
             .then(data => {
-                document.getElementById("loading").style.display = "none";  // Hide loading message
+                document.getElementById("loading").style.display = "none";
+                
                 let resultsDiv = document.getElementById("searchResults");
                 resultsDiv.innerHTML = "";
+
+                totalResults = data.total_results || 0;
+                searchTime = data.search_time || 0;
+                document.getElementById("totalResults").innerText = `About ${totalResults} results (${searchTime} seconds)`;
 
                 if (!data.results.length) {
                     resultsDiv.innerHTML = "<p class='text-danger'>No results found.</p>";
                     return;
                 }
 
+                let groupedResults = {};
                 data.results.forEach(item => {
-                    let div = document.createElement("div");
-                    div.className = "result-item";
-                    div.innerHTML = `
-                        <a href="${item.link}" class="result-link" target="_blank">${item.link}</a>
-                        <a href="${item.link}" class="result-title" target="_blank">${item.title}</a>
-                        <p class="result-snippet">${item.snippet}</p>
-                    `;
-                    resultsDiv.appendChild(div);
+                    let domain = item.display_link;
+                    if (!groupedResults[domain]) {
+                        groupedResults[domain] = { nestedItems: [], domainLink: new URL(item.link).origin };
+                    }
+                    groupedResults[domain].nestedItems.push(item);
                 });
 
-                // Update pagination
+                Object.entries(groupedResults).forEach(([domain, { nestedItems, domainLink }]) => {
+                        let domainDiv = document.createElement("div");
+                        domainDiv.className = "result-group";
+                        domainDiv.innerHTML = `<p class="result-domain"><a href="${domainLink}" target="_blank">${domain}</a></p>`;
+
+                        let nestedResults = document.createElement("ul");
+                        nestedResults.className = "nested-results";
+
+                        nestedItems.forEach(item => {
+                            let listItem = document.createElement("li");
+                            listItem.innerHTML = `
+                                <a href="${item.link}" class="result-title" target="_blank">${item.title}</a>
+                                <p class="result-snippet">${item.snippet}</p>
+                            `;
+                            nestedResults.appendChild(listItem);
+                        });
+
+                        domainDiv.appendChild(nestedResults);
+                        resultsDiv.appendChild(domainDiv);
+                    });
+
                 currentStart = start;
                 nextStart = data.next_start || null;
-                updatePaginationButtons();
+                updatePagination(totalResults > 100 ? 10 : Math.ceil(totalResults / 10)); // Limit to 100 results
             })
-            .catch(error => {
-                document.getElementById("loading").style.display = "none";
-                console.error("Error fetching search results:", error);
-            });
+            .catch(error => console.error("Error fetching results:", error));
     }
 
-    function updatePaginationButtons() {
+    function updatePagination(totalPages) {
         document.getElementById("prevButton").disabled = currentStart <= 1;
         document.getElementById("nextButton").disabled = nextStart === null;
+        let pageNumbersDiv = document.getElementById("pageNumbers");
+        pageNumbersDiv.innerHTML = "";
+
+        for (let i = 1; i <= totalPages; i++) {
+            let startingItem = (i - 1) * 10 + 1;
+            let btn = document.createElement("button");
+            btn.innerText = i;
+            btn.className = `btn ${startingItem === currentStart ? "btn-primary" : "btn-outline-secondary"} mx-1`;
+            btn.onclick = () => performSearch(startingItem);
+            pageNumbersDiv.appendChild(btn);
+        }
     }
 
     function nextPage() {
-        if (nextStart) {
-            performSearch(nextStart);
-        }
+        if (nextStart) performSearch(nextStart);
     }
 
     function prevPage() {
-        if (currentStart > 1) {
-            performSearch(currentStart - 10);
-        }
+        if (currentStart > 1) performSearch(currentStart - 10);
     }
 </script>
 
