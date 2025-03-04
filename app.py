@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
-import os, requests, re
-# import json # [TEMP]
+import os, requests, re, json
 
 app = Flask(__name__)
 
@@ -19,27 +18,28 @@ def google_search(query, start, sort_by):
         "q": query,
         "start": start,
         "sort": sort_by,       # [INFO]: "" -> byRelevance, "date" -> byDate
-        # "exactTerms": query, # [INFO]: forces exact match
         # "filter": 1,         # [INFO]: removes duplicate results
+        # "exactTerms": query, # [INFO]: forces exact match
     }
     try:
-        # Fetch search results (from Google JSON API)
+        # [INFO]: fetch search results (from Google JSON API)
         json_response = requests.get(url, params).json()
 
-        # [TEMP]: Pretty print JSON response
+        # [INFO]: pretty print JSON response (for debugging)
         # json_dump = json.dumps(json_response, indent=2)
-        # app.logger.info(f"\n\n[DEBUG]: response={json_dump}\n----------\n")
+        # app.logger.info(f"\n\n[DEBUG]: response={json_dump}")
+        # app.logger.info("\n----------\n")
 
-        # Check for Google API specific errors
+        # [INFO]: check for Google API specific errors
         if 'error' in json_response:
             log_error_message(json_response)
             return default_types()
 
-        # Extract search results
+        # [INFO]: extract search results
         results = extract_results(json_response)
         app.logger.info(f"\n\n[DEBUG]: results={results}\n----------\n")
 
-        # Get next page index, total results count and search time
+        # [INFO]: get next page index, total results count and search time
         next_start = get_next_start(json_response)
         total_results, search_time = extract_from_search_info(json_response)
 
@@ -52,7 +52,7 @@ def google_search(query, start, sort_by):
 
 def default_types():
     """Returns default values for search results."""
-    return [], None, 0, 0
+    return [], 0, 0, 0
 
 def log_error_message(json_response):
     """Logs error message from Google API response."""
@@ -74,7 +74,7 @@ def extract_results(json_response):
 def get_next_start(json_response):
     """Extracts the next page start index from API response."""
     next_page_info = json_response.get("queries", {}).get("nextPage", [{}])[0]
-    return next_page_info.get("startIndex", None)
+    return next_page_info.get("startIndex", 0)
 
 def extract_from_search_info(json_response):
     """Extracts required search information from API response."""
@@ -102,7 +102,7 @@ def search():
     
     return jsonify({
         "results": results,
-        "next_start": next_start if next_start <= 100 else None,  # [INFO]: to disable next button if >100
+        "next_start": next_start,
         "total_results": total_results,
         "search_time": search_time
     })
@@ -127,7 +127,7 @@ def proxy():
         html = response.text
         domain = re.match(r"https?://[^/]+", url).group(0)  # [INFO]: extract base domain
 
-        # Fix relative links by injecting <base> tag in <head> section of HTML
+        # [INFO]: fix relative links by injecting <base> tag in <head> section of HTML
         html = re.sub(r"(<head[^>]*>)", rf"\1<base href='{domain}/'>", html, count=1)
 
         return html
