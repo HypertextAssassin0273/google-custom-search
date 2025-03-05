@@ -91,13 +91,24 @@ def extract_breadcrumb_trail(item):
     if listitem:
         trail = [li.get("name") for li in listitem[:-1]] # [INFO]: excludes last item (current page)
         trail.insert(0, item.get("displayLink"))         # [INFO]: insert domain as first item
-        return " > ".join(trail)
+        return " > ".join(trail)                         # [NOTE]: refine_breadcrumb_trail() can be applied here
     
     else: # [INFO]: construct trail from URL as fallback
         url_part = re.sub(r'https?://', '', item.get("link"))        # [INFO]: remove protocol
         trail = re.sub(r'(.*?)(\?|\.php|\.html).*', r'\1', url_part) # [INFO]: remove query params and file extension
         app.logger.info(f"\n\n[DEBUG]: url={url_part}, trail={trail}\n----------\n")
-        return trail.replace("/", " > ")
+        return refine_breadcrumb_trail(trail.split("/"))
+
+def refine_breadcrumb_trail(segments):
+    """Refines breadcrumb trail segments."""
+    def __format(segment, value="..."): return value if len(segment) > 30 else segment
+    formatted_segments = [__format(segment) for segment in segments[:-1]]
+
+    if segments:
+        # formatted_segments.append(segments[-1])        # [INFO]: don't modify last segment
+        formatted_segments.append(__format(segments[-1], # [INFO]: truncate last segment
+                                           segments[-1][:30] + "..."))
+    return " > ".join(formatted_segments)
 
 
 @app.route("/")
