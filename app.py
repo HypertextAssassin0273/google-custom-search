@@ -24,11 +24,12 @@ def google_search(query, start, sort_by):
     try:
         # [INFO]: fetch search results (from Google JSON API)
         json_response = requests.get(url, params).json()
+        # app.logger.info(f"\n\n[DEBUG]: response={json_response}\n----------\n")
 
         # [INFO]: pretty print JSON response (for debugging)
-        # json_dump = json.dumps(json_response, indent=2)
-        # app.logger.info(f"\n\n[DEBUG]: response={json_dump}")
-        # app.logger.info("\n----------\n")
+        json_dump = json.dumps(json_response, indent=2)
+        app.logger.info(f"\n\n[DEBUG]: response={json_dump}")
+        app.logger.info("\n----------\n")
 
         # [INFO]: check for Google API specific errors
         if 'error' in json_response:
@@ -67,7 +68,8 @@ def extract_results(json_response):
             "title": item.get("htmlTitle"),
             "link": item.get("link"),
             "display_link": item.get("displayLink"),
-            "snippet": item.get("htmlSnippet")
+            "snippet": item.get("htmlSnippet"),
+            "breadcrumb_trail": extract_breadcrumb_trail(item)
         })
     return results
 
@@ -80,6 +82,22 @@ def extract_from_search_info(json_response):
     """Extracts required search information from API response."""
     search_info = json_response.get("searchInformation", {})
     return search_info.get("totalResults", 0), round(search_info.get("searchTime", 0), 2)
+
+def extract_breadcrumb_trail(item):
+    """Extracts breadcrumb trail from search result."""
+    listitem = item.get("pagemap", {}).get("listitem", [])
+    app.logger.info(f"\n\n[DEBUG]: listitem={listitem}\n----------\n")
+
+    if listitem:
+        trail = [li.get("name") for li in listitem[:-1]] # [INFO]: excludes last item (current page)
+        trail.insert(0, item.get("displayLink"))         # [INFO]: insert domain as first item
+        return " > ".join(trail)
+    
+    else: # [INFO]: construct trail from URL as fallback
+        url_part = re.sub(r'https?://', '', item.get("link"))        # [INFO]: remove protocol
+        trail = re.sub(r'(.*?)(\?|\.php|\.html).*', r'\1', url_part) # [INFO]: remove query params and file extension
+        app.logger.info(f"\n\n[DEBUG]: url={url_part}, trail={trail}\n----------\n")
+        return trail.replace("/", " > ")
 
 
 @app.route("/")

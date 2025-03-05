@@ -38,7 +38,8 @@
         .nested-results li { margin-bottom: 10px; }
         .result-title { font-size: 20px; color: #15c; text-decoration: none; cursor: pointer; }
         .result-title:hover { text-decoration: underline; }
-        .result-snippet { font-size: 14px; color: #333; }
+        .result-snippet { font-size: 14px; color: #333; margin-bottom: 0; }
+        .result-breadcrumb { font-size: 15px; color: #094; margin-bottom: 0; }
 
         /* Pagination */
         .pagination-container { display: flex; justify-content: center; align-items: center; margin-top: 20px; }
@@ -144,13 +145,13 @@
 
                         nestedItems.forEach(item => {
                             let listItem = document.createElement("li");
-                            let link = item.link;
                             listItem.innerHTML = `
-                                <a href="#" class="result-title" onclick="loadPage('${link}')">${item.title}</a>
+                                <a href="#" class="result-title" onclick="loadPage('${item.link}')">${item.title}</a>
+                                <p class="result-breadcrumb">${item.breadcrumb_trail}</p>
                                 <p class="result-snippet">${item.snippet}</p>
                             `;
                             nestedResults.appendChild(listItem);
-                            preloadPage(link); // Preload page
+                            preloadPage(item.link);
                         });
 
                         domainDiv.appendChild(nestedResults);
