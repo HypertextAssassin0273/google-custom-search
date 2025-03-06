@@ -8,7 +8,7 @@ load_dotenv()
 API_KEY = os.getenv("API_KEY")
 SEARCH_ENGINE_ID = os.getenv("SEARCH_ENGINE_ID")
 
-MAX_RESULTS, MAX_QUERIES = 10, 2  # [NOTE]: limiting queries for testing purposes
+MAX_RESULTS, MAX_QUERIES = 10, 5  # [NOTE]: limiting queries for testing purposes
 MAX_LIMIT = MAX_RESULTS * MAX_QUERIES 
 
 

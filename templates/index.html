@@ -96,6 +96,8 @@
         sortBy = "",
         groupedResults = [],
         preloadedPages = {}; // stores preloaded pages to avoid fetching them again
+    
+    let R = []; // [DEBUG]: store the raw results for debugging
 
     function performSearch() {
         currentQuery = document.getElementById("searchQuery").value.trim();
@@ -118,6 +120,7 @@
                 totalResults = results.length;           // store the actual retrieved total results
                 totalPages = Math.ceil(totalResults / resultsPerPage);
 
+                R = results; // [DEBUG]: store the raw results for debugging
                 groupedResults = groupByDomain(results); // group results across all pages & store them globally
                 displayResults(1);
             })
@@ -166,8 +169,7 @@
     }
 
     function groupByDomain(results) {
-        let grouped = [];
-        let domainMap = {};
+        let grouped = [], domainMap = {};
 
         results.forEach(item => {
             let domain = item.display_link;
