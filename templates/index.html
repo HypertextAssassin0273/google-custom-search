@@ -126,6 +126,9 @@
 
     function displayResults(page) {
         currentPage = page;
+        const startIndex = (page - 1) * resultsPerPage;
+        const endIndex = startIndex + resultsPerPage;
+
         let resultsDiv = document.getElementById("searchResults");
         resultsDiv.innerHTML = "";
 
@@ -134,7 +137,6 @@
             return;
         }
 
-        const startIndex = (page - 1) * resultsPerPage, endIndex = startIndex + resultsPerPage;
         let paginatedResults = getPaginatedGroupedResults(startIndex, endIndex);
 
         paginatedResults.forEach(({ domain, domainLink, nestedItems }) => {
@@ -179,44 +181,24 @@
         return grouped;
     }
 
-    // function getPaginatedGroupedResults(startIndex, endIndex) { // [NOTE]: new, but complicated
-    //     const resultMap = new Map();
+    function getPaginatedGroupedResults(startIndex, endIndex) {
+        let currentIndex = 0, resultMap = new Map();
 
-    //     let currentIndex = 0;
-    //     for (const { domain, domainLink, nestedItems } of groupedResults) {
-    //         for (const item of nestedItems) {
-    //             if (currentIndex >= startIndex && currentIndex < endIndex) {
-    //                 if (!resultMap.has(domain)) {
-    //                     resultMap.set(domain, { domain, domainLink, nestedItems: [] });
-    //                 }
-    //                 resultMap.get(domain).nestedItems.push(item);
-    //             }
-    //             currentIndex++;
-    //             if (currentIndex >= endIndex) break;
-    //         }
-    //         if (currentIndex >= endIndex) break;
-    //     }
-
-    //     return Array.from(resultMap.values());
-    // }
-
-    function getPaginatedGroupedResults(startIndex, endIndex) { // [NOTE]: simpler, but doesn't use indices
-        let paginatedResults = [];
-        let count = 0;
-
-        for (let { domain, domainLink, nestedItems } of groupedResults) {
-            if (count >= resultsPerPage) break;
-
-            let remaining = resultsPerPage - count;
-            let paginatedItems = nestedItems.slice(0, remaining);
-
-            if (paginatedItems.length > 0) {
-                paginatedResults.push({ domain, domainLink, nestedItems: paginatedItems });
-                count += paginatedItems.length;
+        for (const { domain, domainLink, nestedItems } of groupedResults) {
+            for (const item of nestedItems) {
+                if (currentIndex >= startIndex && currentIndex < endIndex) {
+                    if (!resultMap.has(domain)) {
+                        resultMap.set(domain, { domain, domainLink, nestedItems: [] });
+                    }
+                    resultMap.get(domain).nestedItems.push(item);
+                }
+                currentIndex++;
+                if (currentIndex >= endIndex) break;
             }
+            if (currentIndex >= endIndex) break;
         }
 
-        return paginatedResults;
+        return Array.from(resultMap.values());
     }
 
     function preloadPage(url) {
