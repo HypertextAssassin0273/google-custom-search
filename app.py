@@ -8,7 +8,8 @@ load_dotenv()
 API_KEY = os.getenv("API_KEY")
 SEARCH_ENGINE_ID = os.getenv("SEARCH_ENGINE_ID")
 
-MAX_RESULTS, MAX_QUERIES = 10, 2 # [TEMP]: limiting results for testing purposes
+MAX_RESULTS, MAX_QUERIES = 10, 2  # [NOTE]: limiting queries for testing purposes
+MAX_LIMIT = MAX_RESULTS * MAX_QUERIES 
 
 
 def google_search(query, start, sort_by):
@@ -119,55 +120,58 @@ def refine_breadcrumb_trail(segments):
     return " > ".join(formatted_segments)
 
 
-def fetch_all_results(query, sort_by):
+def fetch_all_results_in_serial(query, sort_by):  # [NOTE]: for testing purposes as fallback
+    """Fetch search results for a query sequentially using pagination from Google API."""
+    all_results = []
+    total_results, total_search_time = 0, 0
+    next_start = 1
+    
+    while next_start and len(all_results) < MAX_LIMIT:
+        results, next_start, total_results, search_time = google_search(query, next_start, sort_by)
+        # app.logger.info(f"\n\n[DEBUG]: start={next_start}, results_count={len(results)}\n----------\n")
+        
+        # Add results to our collection
+        all_results.extend(results)
+        total_search_time += search_time
+    
+    return all_results, total_results, round(total_search_time, 2)
+
+
+def fetch_all_results(query, sort_by):  # [NOTE]: needs more testing
     """Fetch search results for a query dynamically using parallel requests."""
     # First, make a single request to get initial results and total count
-    initial_results, next_start, total_results, search_time = google_search(query, 1, sort_by)
-    results_map = {1: initial_results}  # store first page results
+    results, next_start, total_results, search_time = google_search(query, 1, sort_by)
+    results_map = {1: results}  # store first page results
     total_search_time = search_time
     
     # Calculate remaining pages to fetch
-    max_pages = min(MAX_QUERIES - 1, (total_results - 1) // MAX_RESULTS)
+    remaining_pages = min(MAX_QUERIES - 1, (total_results - 1) // MAX_RESULTS)
+    # app.logger.info(f"\n\n[DEBUG]: remaining_pages={remaining_pages}\n----------\n")
     
     # Fetch remaining pages in parallel
-    if max_pages and next_start:
-        remaining_indices = get_remaining_indices(next_start, max_pages)
-        fetch_remaining_pages(query, sort_by, remaining_indices, results_map, total_search_time)
+    if remaining_pages and next_start:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            remaining_indices = [next_start + i * MAX_RESULTS for i in range(remaining_pages)]
+            futures = { 
+                executor.submit(google_search, query, start, sort_by): start 
+                for start in remaining_indices
+            }
+            for future in concurrent.futures.as_completed(futures):
+                start = futures[future]  # get the corresponding start index
+                try:
+                    results, _, _, page_search_time = future.result()
+                    results_map[start] = results  # store results under their start index
+                    total_search_time += page_search_time
+                
+                except Exception as e:
+                    app.logger.error(f"\n\n[ERROR]: future.result() -> {e}\n----------\n")
     
-    # Combine all results in order
+    # Combine all results in order (based on start index)
     all_results = []
     for start in sorted(results_map.keys()):
         all_results.extend(results_map[start])
     
     return all_results, total_results, round(total_search_time, 2)
-
-
-def get_remaining_indices(current_start, max_pages):
-    """Generate list of start indices for pagination."""
-    remaining_indices = []
-    while len(remaining_indices) < max_pages:
-        remaining_indices.append(current_start)
-        if current_start + MAX_RESULTS > MAX_RESULTS * MAX_QUERIES: break
-        current_start += MAX_RESULTS
-    return remaining_indices
-
-
-def fetch_remaining_pages(query, sort_by, remaining_indices, results_map, total_search_time):
-    """Fetch remaining result pages in parallel using threads."""
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = { 
-            executor.submit(google_search, query, start, sort_by): start 
-            for start in remaining_indices
-        }
-        for future in concurrent.futures.as_completed(futures):
-            start = futures[future]
-            try:
-                results, _, _, page_search_time = future.result()
-                results_map[start] = results
-                total_search_time += page_search_time
-            
-            except Exception as e:
-                app.logger.error(f"\n\n[ERROR]: future.result() -> {e}\n----------\n")
 
 
 @app.route("/")
