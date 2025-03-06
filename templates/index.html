@@ -87,18 +87,17 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-    const MAX_LIMIT = 100, // [INFO]: API search limit for retrieving results is 100
-          MAX_QUERIES = 10, // [INFO]: API limit for retrieving results in 1 query is 10
-          MAX_PAGES = Math.ceil(MAX_LIMIT / MAX_QUERIES);
+    const resultsPerPage = 10;
 
     let currentQuery = "",
-        currentStart = 1,
-        nextStart = 0,
+        currentPage = 1,
+        totalPages = 0,
         totalResults = 0,
         sortBy = "",
-        preloadedPages = {}; // [INFO]: Cache for preloaded pages
+        groupedResults = [],
+        preloadedPages = {}; // [INFO]: stores preloaded pages to avoid fetching them again
 
-    function performSearch(start) {
+    function performSearch() {
         currentQuery = document.getElementById("searchQuery").value.trim();
         sortBy = document.getElementById("sortBy").value;
 
@@ -110,59 +109,94 @@
         document.getElementById("loading").style.display = "block";
         document.getElementById("searchResults").innerHTML = "";
 
-        fetch(`/search?q=${encodeURIComponent(currentQuery)}&start=${start}&sort_by=${sortBy}`)
+        fetch(`/search?q=${encodeURIComponent(currentQuery)}&sort_by=${sortBy}`)
             .then(response => response.json())
-            .then(data => {
+            .then(({results, total_results, search_time}) => {
                 document.getElementById("loading").style.display = "none";
+                document.getElementById("totalResults").innerText = `About ${total_results} results (${search_time} seconds)`;
 
-                totalResults = data.total_results || 0;
-                document.getElementById("totalResults").innerText = `About ${totalResults} results (${data.search_time} seconds)`;
+                totalResults = results.length;           // [INFO]: store the actual retrieved total results
+                totalPages = Math.ceil(totalResults / resultsPerPage);
 
-                let resultsDiv = document.getElementById("searchResults");
-                resultsDiv.innerHTML = "";
-
-                if (!data.results.length) {
-                    resultsDiv.innerHTML = "<p class='text-danger'>No results found.</p>";
-                    return;
-                }
-
-                let groupedResults = {};
-                data.results.forEach(item => {
-                    let domain = item.display_link;
-                    if (!groupedResults[domain]) {
-                        groupedResults[domain] = { nestedItems: [], domainLink: new URL(item.link).origin };
-                    }
-                    groupedResults[domain].nestedItems.push(item);
-                });
-
-                Object.entries(groupedResults).forEach(([domain, { nestedItems, domainLink }]) => {
-                        let domainDiv = document.createElement("div");
-                        domainDiv.className = "result-group";
-                        domainDiv.innerHTML = `<p class="result-domain"><a href="${domainLink}" target="_blank">${domain}</a></p>`;
-
-                        let nestedResults = document.createElement("ul");
-                        nestedResults.className = "nested-results";
-
-                        nestedItems.forEach(item => {
-                            let listItem = document.createElement("li");
-                            listItem.innerHTML = `
-                                <a href="#" class="result-title" onclick="loadPage('${item.link}')">${item.title}</a>
-                                <p class="result-breadcrumb">${item.breadcrumb_trail}</p>
-                                <p class="result-snippet">${item.snippet}</p>
-                            `;
-                            nestedResults.appendChild(listItem);
-                            preloadPage(item.link);
-                        });
-
-                        domainDiv.appendChild(nestedResults);
-                        resultsDiv.appendChild(domainDiv);
-                    });
-
-                currentStart = start;
-                nextStart = data.next_start || 0;
-                updatePagination(totalResults > MAX_LIMIT ? MAX_PAGES : Math.ceil(totalResults / MAX_QUERIES));
+                groupedResults = groupByDomain(results); // [INFO]: group results across all pages & store them globally
+                displayResults(1);
             })
             .catch(error => console.error("Error fetching results:", error));
+    }
+
+    function displayResults(page) {
+        currentPage = page;
+        let startIndex = (page - 1) * resultsPerPage;
+        let endIndex = startIndex + resultsPerPage;
+        let resultsDiv = document.getElementById("searchResults");
+        resultsDiv.innerHTML = "";
+
+        if (!groupedResults.length) {
+            resultsDiv.innerHTML = "<p class='text-danger'>No results found.</p>";
+            return;
+        }
+
+        let paginatedResults = getPaginatedGroupedResults(startIndex, endIndex);
+
+        paginatedResults.forEach(({ domain, domainLink, nestedItems }) => {
+            let domainDiv = document.createElement("div");
+            domainDiv.className = "result-group";
+            domainDiv.innerHTML = `<p class="result-domain"><strong><a href="${domainLink}" target="_blank">${domain}</a></strong></p>`;
+
+            let nestedResults = document.createElement("ul");
+            nestedResults.className = "nested-results";
+
+            nestedItems.forEach(({ link, title, breadcrumb_trail, snippet }) => {
+                let listItem = document.createElement("li");
+                listItem.innerHTML = `
+                    <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
+                    <p class="result-breadcrumb">${breadcrumb_trail}</p>
+                    <p class="result-snippet">${snippet}</p>
+                `;
+                nestedResults.appendChild(listItem);
+                preloadPage(link); // [INFO]: preload only for the current page
+            });
+
+            domainDiv.appendChild(nestedResults);
+            resultsDiv.appendChild(domainDiv);
+        });
+
+        updatePagination();
+    }
+
+    function groupByDomain(results) {
+        let grouped = [];
+        let domainMap = {};
+
+        results.forEach(item => {
+            let domain = item.display_link;
+            if (!domainMap[domain]) {
+                domainMap[domain] = { domain, domainLink: new URL(item.link).origin, nestedItems: [] };
+                grouped.push(domainMap[domain]);
+            }
+            domainMap[domain].nestedItems.push(item);
+        });
+
+        return grouped;
+    }
+
+    function getPaginatedGroupedResults(startIndex, endIndex) {
+        let paginatedResults = [];
+        let count = 0;
+
+        for (let { domain, domainLink, nestedItems } of groupedResults) {
+            if (count >= resultsPerPage) break;
+
+            let remaining = resultsPerPage - count;
+            let paginatedItems = nestedItems.slice(0, remaining);
+
+            if (paginatedItems.length > 0) {
+                paginatedResults.push({ domain, domainLink, nestedItems: paginatedItems });
+                count += paginatedItems.length;
+            }
+        }
+
+        return paginatedResults;
     }
 
     function preloadPage(url) {
@@ -182,25 +216,33 @@
         }
     }
 
-    function updatePagination(totalPages) {
-        document.getElementById("prevButton").disabled = currentStart <= 1;
-        document.getElementById("nextButton").disabled = nextStart === 0 || nextStart > MAX_LIMIT || nextStart > totalResults;
-
+    function updatePagination() {
         let pageNumbersDiv = document.getElementById("pageNumbers");
         pageNumbersDiv.innerHTML = "";
 
         for (let i = 1; i <= totalPages; i++) {
-            let startingItem = (i - 1) * 10 + 1;
             let btn = document.createElement("button");
             btn.innerText = i;
-            btn.className = `btn ${startingItem === currentStart ? "btn-primary" : "btn-outline-secondary"} mx-1`;
-            btn.onclick = () => performSearch(startingItem);
+            btn.className = `btn ${i === currentPage ? "btn-primary" : "btn-outline-secondary"} mx-1`;
+            btn.onclick = () => displayResults(i);
             pageNumbersDiv.appendChild(btn);
+        }
+
+        document.getElementById("prevButton").disabled = currentPage === 1;
+        document.getElementById("nextButton").disabled = currentPage === totalPages;
+    }
+
+    function nextPage() {
+        if (currentPage < totalPages) {
+            displayResults(currentPage + 1);
         }
     }
 
-    function nextPage() { performSearch(nextStart); }
-    function prevPage() { performSearch(currentStart - 10); }
+    function prevPage() {
+        if (currentPage > 1) {
+            displayResults(currentPage - 1);
+        }
+    }
 </script>
 
 </body>

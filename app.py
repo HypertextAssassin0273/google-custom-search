@@ -1,12 +1,14 @@
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
-import os, requests, re, json
+import os, requests, re, json, concurrent.futures
 
 app = Flask(__name__)
 
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
 SEARCH_ENGINE_ID = os.getenv("SEARCH_ENGINE_ID")
+
+MAX_RESULTS, MAX_QUERIES = 10, 2 # [TEMP]: limiting results for testing purposes
 
 
 def google_search(query, start, sort_by):
@@ -17,30 +19,30 @@ def google_search(query, start, sort_by):
         "cx": SEARCH_ENGINE_ID,
         "q": query,
         "start": start,
-        "sort": sort_by,       # [INFO]: "" -> byRelevance, "date" -> byDate
-        # "filter": 1,         # [INFO]: removes duplicate results
-        # "exactTerms": query, # [INFO]: forces exact match
+        "sort": sort_by,          # "" -> byRelevance, "date" -> byDate
+        # "filter": 1,            # removes duplicate results
+        # "exactTerms": query,    # forces exact match
     }
     try:
-        # [INFO]: fetch search results (from Google JSON API)
+        # Fetch search results (from Google JSON API)
         json_response = requests.get(url, params).json()
         # app.logger.info(f"\n\n[DEBUG]: response={json_response}\n----------\n")
 
-        # [INFO]: pretty print JSON response (for debugging)
+        # Pretty print JSON response (for debugging)
         json_dump = json.dumps(json_response, indent=2)
         app.logger.info(f"\n\n[DEBUG]: response={json_dump}")
         app.logger.info("\n----------\n")
 
-        # [INFO]: check for Google API specific errors
+        # Check for Google API specific errors
         if 'error' in json_response:
             log_error_message(json_response)
             return default_types()
 
-        # [INFO]: extract search results
+        # Extract search results
         results = extract_results(json_response)
-        app.logger.info(f"\n\n[DEBUG]: results={results}\n----------\n")
+        # app.logger.info(f"\n\n[DEBUG]: results={results}\n----------\n")
 
-        # [INFO]: get next page index, total results count and search time
+        # Get next page index, total results count and search time
         next_start = get_next_start(json_response)
         total_results, search_time = extract_from_search_info(json_response)
 
@@ -55,10 +57,12 @@ def default_types():
     """Returns default values for search results."""
     return [], 0, 0, 0
 
+
 def log_error_message(json_response):
     """Logs error message from Google API response."""
     error = json_response['error']
-    app.logger.error(f"\n\n[ERROR]: GoogleAPI ({error['code']}) -> {error['message']}\n----------\n")
+    app.logger.error(f"\n\n[ERROR]: GoogleAPI({error['code']}) -> {error['message']}\n----------\n")
+
 
 def extract_results(json_response):
     """Extracts search results from API response."""
@@ -73,31 +77,35 @@ def extract_results(json_response):
         })
     return results
 
+
 def get_next_start(json_response):
     """Extracts the next page start index from API response."""
     next_page_info = json_response.get("queries", {}).get("nextPage", [{}])[0]
     return next_page_info.get("startIndex", 0)
 
+
 def extract_from_search_info(json_response):
     """Extracts required search information from API response."""
     search_info = json_response.get("searchInformation", {})
-    return search_info.get("totalResults", 0), round(search_info.get("searchTime", 0), 2)
+    return int(search_info.get("totalResults", "0")), round(search_info.get("searchTime", 0), 2)
+
 
 def extract_breadcrumb_trail(item):
     """Extracts breadcrumb trail from search result."""
     listitem = item.get("pagemap", {}).get("listitem", [])
-    app.logger.info(f"\n\n[DEBUG]: listitem={listitem}\n----------\n")
+    # app.logger.info(f"\n\n[DEBUG]: listitem={listitem}\n----------\n")
 
     if listitem:
-        trail = [li.get("name") for li in listitem[:-1]] # [INFO]: excludes last item (current page)
-        trail.insert(0, item.get("displayLink"))         # [INFO]: insert domain as first item
-        return " > ".join(trail)                         # [NOTE]: refine_breadcrumb_trail() can be applied here
+        trail = [li.get("name") for li in listitem[:-1]]  # excludes last item (current page)
+        trail.insert(0, item.get("displayLink"))          # insert domain as first item
+        return " > ".join(trail)
     
-    else: # [INFO]: construct trail from URL as fallback
-        url_part = re.sub(r'https?://', '', item.get("link"))        # [INFO]: remove protocol
-        trail = re.sub(r'(.*?)(\?|\.php|\.html).*', r'\1', url_part) # [INFO]: remove query params and file extension
-        app.logger.info(f"\n\n[DEBUG]: url={url_part}, trail={trail}\n----------\n")
+    else: # Construct trail from URL as fallback
+        url_part = re.sub(r'https?://', '', item.get("link"))         # remove protocol
+        trail = re.sub(r'(.*?)(\?|\.php|\.html).*', r'\1', url_part)  # remove query params & file extension
+        # app.logger.info(f"\n\n[DEBUG]: url={url_part}, trail={trail}\n----------\n")
         return refine_breadcrumb_trail(trail.split("/"))
+
 
 def refine_breadcrumb_trail(segments):
     """Refines breadcrumb trail segments."""
@@ -105,10 +113,61 @@ def refine_breadcrumb_trail(segments):
     formatted_segments = [__format(segment) for segment in segments[:-1]]
 
     if segments:
-        # formatted_segments.append(segments[-1])        # [INFO]: don't modify last segment
-        formatted_segments.append(__format(segments[-1], # [INFO]: truncate last segment
+        # formatted_segments.append(segments[-1])         # don't modify last segment
+        formatted_segments.append(__format(segments[-1],  # truncate last segment
                                            segments[-1][:30] + "..."))
     return " > ".join(formatted_segments)
+
+
+def fetch_all_results(query, sort_by):
+    """Fetch search results for a query dynamically using parallel requests."""
+    # First, make a single request to get initial results and total count
+    initial_results, next_start, total_results, search_time = google_search(query, 1, sort_by)
+    results_map = {1: initial_results}  # store first page results
+    total_search_time = search_time
+    
+    # Calculate remaining pages to fetch
+    max_pages = min(MAX_QUERIES - 1, (total_results - 1) // MAX_RESULTS)
+    
+    # Fetch remaining pages in parallel
+    if max_pages and next_start:
+        remaining_indices = get_remaining_indices(next_start, max_pages)
+        fetch_remaining_pages(query, sort_by, remaining_indices, results_map, total_search_time)
+    
+    # Combine all results in order
+    all_results = []
+    for start in sorted(results_map.keys()):
+        all_results.extend(results_map[start])
+    
+    return all_results, total_results, round(total_search_time, 2)
+
+
+def get_remaining_indices(current_start, max_pages):
+    """Generate list of start indices for pagination."""
+    remaining_indices = []
+    while len(remaining_indices) < max_pages:
+        remaining_indices.append(current_start)
+        if current_start + MAX_RESULTS > MAX_RESULTS * MAX_QUERIES: break
+        current_start += MAX_RESULTS
+    return remaining_indices
+
+
+def fetch_remaining_pages(query, sort_by, remaining_indices, results_map, total_search_time):
+    """Fetch remaining result pages in parallel using threads."""
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = { 
+            executor.submit(google_search, query, start, sort_by): start 
+            for start in remaining_indices
+        }
+        for future in concurrent.futures.as_completed(futures):
+            start = futures[future]
+            try:
+                results, _, _, page_search_time = future.result()
+                results_map[start] = results
+                total_search_time += page_search_time
+            
+            except Exception as e:
+                app.logger.error(f"\n\n[ERROR]: future.result() -> {e}\n----------\n")
 
 
 @app.route("/")
@@ -116,25 +175,25 @@ def home():
     """Renders the home page."""
     return render_template("index.html")
 
+
 @app.route("/search")
 def search():
     """Handles search requests."""
     query = request.args.get("q", "")
-    start = request.args.get("start", 1, type=int)
     sort_by = request.args.get("sort_by", "")
-    # app.logger.info(f"\n\n[DEBUG]: query={query}, start={start}, sort_by={sort_by}\n----------\n")
+    # app.logger.info(f"\n\n[DEBUG]: query={query}, sort_by={sort_by}\n----------\n")
 
     if not query:
         return jsonify({"error": "No search query provided"}), 400
     
-    results, next_start, total_results, search_time = google_search(query, start, sort_by)
+    results, total_results, search_time = fetch_all_results(query, sort_by)
     
     return jsonify({
         "results": results,
-        "next_start": next_start,
         "total_results": total_results,
         "search_time": search_time
     })
+
 
 @app.route("/proxy")
 def proxy():
@@ -144,19 +203,14 @@ def proxy():
         return "Error: No URL provided", 400
 
     try:
-        response = requests.get(
-            url, 
-            headers={ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }, 
-            timeout=5
-        )
-        
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if response.status_code != 200:
             return "Error fetching page", 500
         
         html = response.text
-        domain = re.match(r"https?://[^/]+", url).group(0)  # [INFO]: extract base domain
+        domain = re.match(r"https?://[^/]+", url).group(0)  # extract base domain
 
-        # [INFO]: fix relative links by injecting <base> tag in <head> section of HTML
+        # Fix relative links by injecting <base> tag in <head> section of HTML
         html = re.sub(r"(<head[^>]*>)", rf"\1<base href='{domain}/'>", html, count=1)
 
         return html
