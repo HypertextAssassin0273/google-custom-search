@@ -95,9 +95,11 @@
         totalResults = 0,
         sortBy = "",
         groupedResults = [],
-        preloadedPages = {}; // stores preloaded pages to avoid fetching them again
-    
-    let R = []; // [DEBUG]: store the raw results for debugging
+        preloadedPages = {}, // Cache for preloaded HTML
+        srcdocFailures = new Set(); // Track URLs that fail with srcdoc
+
+    let R = [], G = [], P = [], PP = preloadedPages, S = srcdocFailures; // [DEBUG]
+    let I = document.getElementById("previewFrame"); // [DEBUG]
 
     function performSearch() {
         currentQuery = document.getElementById("searchQuery").value.trim();
@@ -117,11 +119,12 @@
                 document.getElementById("loading").style.display = "none";
                 document.getElementById("totalResults").innerText = `About ${total_results} results (${search_time} seconds)`;
 
-                totalResults = results.length;           // store the actual retrieved total results
+                totalResults = results.length;
                 totalPages = Math.ceil(totalResults / resultsPerPage);
 
-                R = results; // [DEBUG]: store the raw results for debugging
-                groupedResults = groupByDomain(results); // group results across all pages & store them globally
+                R = results; // [DEBUG]
+                groupedResults = groupByDomain(results);
+                G = groupedResults; // [DEBUG]
                 displayResults(1);
             })
             .catch(error => console.error("Error fetching results:", error));
@@ -141,6 +144,7 @@
         }
 
         let paginatedResults = getPaginatedGroupedResults(startIndex, endIndex);
+        P = paginatedResults; // [DEBUG]
 
         paginatedResults.forEach(({ domain, domainLink, nestedItems }) => {
             let domainDiv = document.createElement("div");
@@ -153,12 +157,12 @@
             nestedItems.forEach(({ link, title, breadcrumb_trail, snippet }) => {
                 let listItem = document.createElement("li");
                 listItem.innerHTML = `
-                    <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
+                    <a href="#" class="result-title" onclick="loadPage('${link}'); return false;">${title}</a>
                     <p class="result-breadcrumb">${breadcrumb_trail}</p>
                     <p class="result-snippet">${snippet}</p>
                 `;
                 nestedResults.appendChild(listItem);
-                preloadPage(link); // preload only for the current page
+                preloadPage(link); // Preload for caching
             });
 
             domainDiv.appendChild(nestedResults);
@@ -208,16 +212,86 @@
             fetch(`/proxy?url=${encodeURIComponent(url)}`)
                 .then(response => response.text())
                 .then(html => { preloadedPages[url] = html; })
-                .catch(error => console.error("Error preloading:", error));
+                .catch(error => console.error("Error pre-loading:", error));
         }
     }
 
-    function loadPage(url) {
+    function reloadPage(url) { // [DEBUG]
         if (preloadedPages[url]) {
-            document.getElementById("previewFrame").srcdoc = preloadedPages[url];
-        } else {
-            document.getElementById("previewFrame").src = `/proxy?url=${encodeURIComponent(url)}`;
+            fetch(`/proxy?url=${encodeURIComponent(url)}`)
+                .then(response => response.text())
+                .then(html => { preloadedPages[url] = html; })
+                .catch(error => console.error("Error re-loading:", error));
         }
+    }
+
+    function loadPage(url) { // [NOTE]: needs testing, code intention not fully clear
+        const iframe = document.getElementById("previewFrame");
+        const proxyUrl = `/proxy?url=${encodeURIComponent(url)}`;
+
+        // Clear previous content and event listeners
+        iframe.src = "about:blank";
+        iframe.onload = null;
+
+        if (preloadedPages[url] && !srcdocFailures.has(url)) {
+            // Try srcdoc first for speed
+            const html = enhanceHtmlForSrcdoc(preloadedPages[url], url);
+            iframe.srcdoc = html;
+
+            // Set a timeout to detect if srcdoc fails (e.g., blank iframe due to CSP or errors)
+            const fallbackTimeout = setTimeout(() => {
+                if (iframe.contentWindow.location.href === "about:blank") {
+                    console.warn(`Srcdoc failed for ${url}, falling back to src`);
+                    srcdocFailures.add(url);
+                    iframe.src = proxyUrl;
+                }
+            }, 1000);
+
+            iframe.onload = () => {
+                clearTimeout(fallbackTimeout); // Cancel fallback if loaded successfully
+            };
+        } else { // [NOTE]: logic not utilized properly + fallback needs testing
+            // Use src directly if srcdoc previously failed or no preloaded content
+            iframe.src = proxyUrl;
+        }
+
+        // Update parent history
+        window.history.pushState({ url: url }, "", `/preview?url=${encodeURIComponent(url)}`);
+    }
+
+    function enhanceHtmlForSrcdoc(html, originalUrl) {
+        const domain = new URL(originalUrl).origin;
+        const script = `
+            <script>
+                // Fix relative URLs in scripts and links
+                document.querySelectorAll('a[href], img[src], script[src], link[href]').forEach(el => {
+                    const attr = el.tagName === 'A' || el.tagName === 'LINK' ? 'href' : 'src';
+                    const url = el.getAttribute(attr);
+                    if (url && !url.match(/^[a-zA-Z]+:/) && !url.startsWith('/')) {
+                        el.setAttribute(attr, '${domain}/' + url);
+                    } else if (url && url.startsWith('/')) {
+                        el.setAttribute(attr, '${domain}' + url);
+                    }
+                });
+
+                // Intercept history changes and send to parent
+                const originalReplaceState = history.replaceState;
+                history.replaceState = function(state, title, url) {
+                    window.parent.postMessage({ type: 'historyChange', url: url || location.href, state: state }, '*');
+                    originalReplaceState.apply(this, arguments);
+                };
+
+                // Notify parent of navigation attempts
+                window.addEventListener('click', (e) => {
+                    const link = e.target.closest('a');
+                    if (link && link.href) {
+                        e.preventDefault();
+                        window.parent.postMessage({ type: 'navigate', url: link.href }, '*');
+                    }
+                });
+            <\/script>
+        `;
+        return html.replace(/<head[^>]*>/i, `$&<base href="${domain}/">${script}`);
     }
 
     function updatePagination() {
@@ -247,6 +321,30 @@
             displayResults(currentPage - 1);
         }
     }
+
+    // Handle messages from iframe
+    window.addEventListener('message', (event) => {
+        if (event.data.type === 'historyChange') {
+            const newUrl = event.data.url;
+            const newState = event.data.state || {};
+            window.history.replaceState(newState, '', `/preview?url=${encodeURIComponent(newUrl)}`);
+        } else if (event.data.type === 'navigate') {
+            loadPage(event.data.url); // Load new URL in iframe
+        }
+    });
+
+    // window.addEventListener('popstate', (event) => {
+    //     if (event.state && event.state.url) {
+    //         loadPage(event.state.url);
+    //     }
+    // });
+
+    // // Load initial page if URL has query parameter
+    // const urlParams = new URLSearchParams(window.location.search);
+    // const previewUrl = urlParams.get('url');
+    // if (previewUrl) {
+    //     loadPage(decodeURIComponent(previewUrl));
+    // }
 </script>
 
 </body>

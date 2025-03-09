@@ -1,6 +1,8 @@
-from flask import Flask, request, jsonify, render_template
-from dotenv import load_dotenv
 import os, requests, re, json, concurrent.futures
+from flask import Flask, request, jsonify, render_template
+from playwright.sync_api import sync_playwright
+from functools import lru_cache
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 
@@ -8,10 +10,11 @@ load_dotenv()
 API_KEY = os.getenv("API_KEY")
 SEARCH_ENGINE_ID = os.getenv("SEARCH_ENGINE_ID")
 
-MAX_RESULTS, MAX_QUERIES = 10, 5  # [NOTE]: limiting queries for testing purposes
+MAX_RESULTS, MAX_QUERIES = 10, 10  # [NOTE]: limiting queries for testing purposes
 MAX_LIMIT = MAX_RESULTS * MAX_QUERIES 
 
 
+@lru_cache(maxsize=128) # cache search results
 def google_search(query, start, sort_by):
     """Fetch search results from Google Custom Search API."""
     url = "https://www.googleapis.com/customsearch/v1"
@@ -20,9 +23,9 @@ def google_search(query, start, sort_by):
         "cx": SEARCH_ENGINE_ID,
         "q": query,
         "start": start,
-        "sort": sort_by,          # "" -> byRelevance, "date" -> byDate
-        # "filter": 1,            # removes duplicate results
-        # "exactTerms": query,    # forces exact match
+        "sort": sort_by,        # "" -> byRelevance, "date" -> byDate
+        # "filter": 1,          # removes duplicate results
+        # "exactTerms": query,  # forces exact match
     }
     try:
         # Fetch search results (from Google JSON API)
@@ -120,25 +123,25 @@ def refine_breadcrumb_trail(segments):
     return " > ".join(formatted_segments)
 
 
-def fetch_all_results_in_serial(query, sort_by):  # [NOTE]: for testing purposes as fallback
-    """Fetch search results for a query sequentially using pagination from Google API."""
-    all_results = []
-    total_results, total_search_time = 0, 0
-    next_start = 1
+# def fetch_all_results_in_serial(query, sort_by):  # [NOTE]: for testing purposes as fallback
+#     """Fetch search results sequentially using pagination."""
+#     all_results = []
+#     total_results, total_search_time = 0, 0
+#     next_start = 1
     
-    while next_start and len(all_results) < MAX_LIMIT:
-        results, next_start, total_results, search_time = google_search(query, next_start, sort_by)
-        # app.logger.info(f"\n\n[DEBUG]: start={next_start}, results_count={len(results)}\n----------\n")
+#     while next_start and len(all_results) < MAX_LIMIT:
+#         results, next_start, total_results, search_time = google_search(query, next_start, sort_by)
+#         # app.logger.info(f"\n\n[DEBUG]: start={next_start}, results_count={len(results)}\n----------\n")
         
-        # Add results to our collection
-        all_results.extend(results)
-        total_search_time += search_time
+#         # Add results to our collection
+#         all_results.extend(results)
+#         total_search_time += search_time
     
-    return all_results, total_results, round(total_search_time, 2)
+#     return all_results, total_results, round(total_search_time, 2)
 
 
 def fetch_all_results(query, sort_by):  # [NOTE]: needs more testing
-    """Fetch search results for a query dynamically using parallel requests."""
+    """Fetch search results dynamically using parallel requests in threads."""
     # First, make a single request to get initial results and total count
     results, next_start, total_results, search_time = google_search(query, 1, sort_by)
     results_map = {1: results}  # store first page results
@@ -174,6 +177,33 @@ def fetch_all_results(query, sort_by):  # [NOTE]: needs more testing
     return all_results, total_results, round(total_search_time, 2)
 
 
+@lru_cache(maxsize=128)  # cache proxy responses
+def fetch_proxy_content(url):
+    """Fetch and return page content using a proxy server to avoid CORS issues."""
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.set_extra_http_headers({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5"
+            })
+            page.goto(url)
+            page.wait_for_timeout(30000)  # wait 10s for JS to execute
+            html = page.content()
+            browser.close()
+            
+            # Fix relative links by injecting <base> tag in <head> section of HTML
+            domain = re.match(r"https?://[^/]+", url).group(0)  # extract base domain
+            html = re.sub(r"(<head[^>]*>)", rf"\1<base href='{domain}/'>", html, count=1)
+            return html, 200
+
+    except Exception as e:
+        app.logger.error(f"[ERROR]: PlaywrightException -> {e}")
+        return f"Error fetching page: {e}", 500
+
+
 @app.route("/")
 def home():
     """Renders the home page."""
@@ -201,26 +231,12 @@ def search():
 
 @app.route("/proxy")
 def proxy():
-    """Proxy endpoint to fetch and serve pages to bypass CORS issues."""
+    """Handles proxy requests."""
     url = request.args.get("url")
     if not url:
         return "Error: No URL provided", 400
-
-    try:
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if response.status_code != 200:
-            return "Error fetching page", 500
-        
-        html = response.text
-        domain = re.match(r"https?://[^/]+", url).group(0)  # extract base domain
-
-        # Fix relative links by injecting <base> tag in <head> section of HTML
-        html = re.sub(r"(<head[^>]*>)", rf"\1<base href='{domain}/'>", html, count=1)
-
-        return html
     
-    except requests.exceptions.RequestException:
-        return "Error fetching page", 500
+    return fetch_proxy_content(url)
 
 
 if __name__ == "__main__":
