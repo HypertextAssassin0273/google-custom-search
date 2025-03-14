@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 import os, requests, re, json, concurrent.futures
+import pandas as pd
 
 app = Flask(__name__)
 
@@ -219,8 +220,41 @@ def proxy():
 
         return html
     
-    except requests.exceptions.RequestException:
-        return "Error fetching page", 500
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"\n\n[ERROR]: Proxy -> {e}\n----------\n")
+        return f"Error fetching page: {e}", 500
+
+
+@app.route("/import_websites")
+def import_websites():
+    """Import websites from a .xlsx file and return categorized data."""
+    try:
+        # Read the Excel file with multiple sheets
+        xl = pd.ExcelFile('websites.xlsx')
+        categories = {}
+        
+        # Process each sheet as a category
+        for sheet_name in xl.sheet_names:
+            df = pd.read_excel(xl, sheet_name=sheet_name)
+            # Ensure columns exist and clean data
+            if 'Website Name' in df.columns and 'Website Link' in df.columns:
+                websites = [
+                    {"title": row['Website Name'], "link": row['Website Link']}
+                    for _, row in df.iterrows()
+                    if pd.notna(row['Website Name']) and pd.notna(row['Website Link'])
+                ]
+                categories[sheet_name] = {
+                    "websites": websites,
+                    "max_limit": len(websites)  # Dynamic max limit per category
+                }
+        
+        return jsonify({
+            "categories": categories,
+            "default_category": list(categories.keys())[0] if categories else None
+        })
+    except Exception as e:
+        app.logger.error(f"\n\n[ERROR]: Importing websites -> {e}\n----------\n")
+        return jsonify({"error": "Failed to import websites"}), 500
 
 
 if __name__ == "__main__":

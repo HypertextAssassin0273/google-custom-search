@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Google Custom Search</title>
+    <title>Google Custom Search & Websites Preview</title>
     
     <!-- Bootstrap CDN -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
@@ -45,35 +45,58 @@
         .pagination-container { display: flex; justify-content: center; align-items: center; margin-top: 20px; }
         .pagination button { margin: 0 5px; }
 
+        /* Tab styles */
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
     </style>    
 </head>
 <body>
 
 <div class="container-fluid">
-    <!-- Left pane: Search bar and results -->
+    <!-- Left pane: Toggle and content -->
     <div class="left-pane">
-        <h2 class="text-center">Google Custom Search</h2>
+        <button class="btn btn-secondary mb-3" onclick="toggleTab()">Toggle Tab</button>
         
-        <div class="input-group mb-3">
-            <input type="text" id="searchQuery" class="form-control" placeholder="Enter search term">
-            <button class="btn btn-primary" onclick="performSearch(1)">Search</button>
-        </div>
-        
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <span id="totalResults"></span>
-            <select id="sortBy" class="form-select w-auto" onchange="performSearch(1)">
-                <option value="" selected>Sort by: Relevance</option>
-                <option value="date">Sort by: Date</option>
-            </select>
+        <!-- Google Custom Search Tab -->
+        <div id="googleSearchTab" class="tab-content active">
+            <h2 class="text-center">Google Custom Search</h2>
+            <div class="input-group mb-3">
+                <input type="text" id="searchQuery" class="form-control" placeholder="Enter search term">
+                <button class="btn btn-primary" onclick="performSearch(1)">Search</button>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span id="totalResults"></span>
+                <select id="sortBy" class="form-select w-auto" onchange="performSearch(1)">
+                    <option value="" selected>Sort by: Relevance</option>
+                    <option value="date">Sort by: Date</option>
+                </select>
+            </div>
+
+            <div id="loading" style="display: none;">Loading...</div>
+            <div id="searchResults"></div>
+
+            <div class="pagination-container">
+                <button id="prevButton" class="btn btn-secondary" onclick="prevPage()" disabled>Prev</button>
+                <div id="pageNumbers"></div>
+                <button id="nextButton" class="btn btn-secondary" onclick="nextPage()" disabled>Next</button>
+            </div>
         </div>
 
-        <div id="loading" style="display: none;">Loading...</div>
-        <div id="searchResults"></div>
-
-        <div class="pagination-container">
-            <button id="prevButton" class="btn btn-secondary" onclick="prevPage()" disabled>Prev</button>
-            <div id="pageNumbers"></div>
-            <button id="nextButton" class="btn btn-secondary" onclick="nextPage()" disabled>Next</button>
+        <!-- Websites Tab -->
+        <div id="websitesTab" class="tab-content">
+            <h2 class="text-center">Websites Preview</h2>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span id="websitesTotal"></span>
+                <select id="categorySelect" class="form-select w-auto" onchange="displayWebsites(1)"></select>
+            </div>
+            <div id="websitesLoading" style="display: none;">Loading...</div>
+            <div id="websitesResults"></div>
+            <div class="pagination-container">
+                <button id="websitesPrevButton" class="btn btn-secondary" onclick="websitesPrevPage()" disabled>Prev</button>
+                <div id="websitesPageNumbers"></div>
+                <button id="websitesNextButton" class="btn btn-secondary" onclick="websitesNextPage()" disabled>Next</button>
+            </div>
         </div>
     </div>
 
@@ -89,6 +112,7 @@
 <script>
     const resultsPerPage = 10;
 
+    // Google Search variables
     let currentQuery = "",
         currentPage = 1,
         totalPages = 0,
@@ -96,9 +120,33 @@
         sortBy = "",
         groupedResults = [],
         preloadedPages = {}; // stores preloaded pages to avoid fetching them again
-    
-    let R = []; // [DEBUG]: store the raw results for debugging
 
+    // Websites variables
+    let websitesCategories = {},
+        currentCategory = "",
+        websitesCurrentPage = 1,
+        websitesTotalPages = 0,
+        websitesTotalResults = 0;
+
+    // [DEBUG]: reference variables for debugging
+    let R = [], G = [], P = [], W = {}, PP = preloadedPages,
+        I = document.getElementById("previewFrame");
+
+    // Tab toggle
+    function toggleTab() {
+        const googleTab = document.getElementById("googleSearchTab");
+        const websitesTab = document.getElementById("websitesTab");
+        if (googleTab.classList.contains("active")) {
+            googleTab.classList.remove("active");
+            websitesTab.classList.add("active");
+            loadWebsites();
+        } else {
+            websitesTab.classList.remove("active");
+            googleTab.classList.add("active");
+        }
+    }
+
+    // Google Search functions
     function performSearch() {
         currentQuery = document.getElementById("searchQuery").value.trim();
         sortBy = document.getElementById("sortBy").value;
@@ -120,8 +168,9 @@
                 totalResults = results.length;           // store the actual retrieved total results
                 totalPages = Math.ceil(totalResults / resultsPerPage);
 
-                R = results; // [DEBUG]: store the raw results for debugging
+                R = results; // [DEBUG]
                 groupedResults = groupByDomain(results); // group results across all pages & store them globally
+                G = groupedResults; // [DEBUG]
                 displayResults(1);
             })
             .catch(error => console.error("Error fetching results:", error));
@@ -141,6 +190,7 @@
         }
 
         let paginatedResults = getPaginatedGroupedResults(startIndex, endIndex);
+        P = paginatedResults; // [DEBUG]
 
         paginatedResults.forEach(({ domain, domainLink, nestedItems }) => {
             let domainDiv = document.createElement("div");
@@ -212,6 +262,15 @@
         }
     }
 
+    function reloadPage(url) { // [DEBUG]
+        if (preloadedPages[url]) {
+            fetch(`/proxy?url=${encodeURIComponent(url)}`)
+                .then(response => response.text())
+                .then(html => { preloadedPages[url] = html; })
+                .catch(error => console.error("Error re-loading:", error));
+        }
+    }
+
     function loadPage(url) {
         if (preloadedPages[url]) {
             document.getElementById("previewFrame").srcdoc = preloadedPages[url];
@@ -247,7 +306,98 @@
             displayResults(currentPage - 1);
         }
     }
-</script>
 
+    // Websites functions
+    function loadWebsites() {
+        document.getElementById("websitesLoading").style.display = "block";
+        fetch("/import_websites")
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("websitesLoading").style.display = "none";
+                if (data.error) {
+                    document.getElementById("websitesResults").innerHTML = "<p class='text-danger'>Error loading websites.</p>";
+                    return;
+                }
+
+                websitesCategories = data.categories;
+                W = websitesCategories; // [DEBUG]
+                currentCategory = data.default_category;
+                const categorySelect = document.getElementById("categorySelect");
+                categorySelect.innerHTML = "";
+                Object.keys(websitesCategories).forEach(category => {
+                    const option = document.createElement("option");
+                    option.value = category;
+                    option.text = category;
+                    if (category === currentCategory) option.selected = true;
+                    categorySelect.appendChild(option);
+                });
+
+                displayWebsites(1);
+            })
+            .catch(error => console.error("Error fetching websites:", error));
+    }
+
+    function displayWebsites(page) {
+        websitesCurrentPage = page;
+        currentCategory = document.getElementById("categorySelect").value;
+        const startIndex = (page - 1) * resultsPerPage;
+        const endIndex = startIndex + resultsPerPage;
+        const categoryData = websitesCategories[currentCategory];
+        const websites = categoryData.websites;
+
+        document.getElementById("websitesTotal").innerText = `Total: ${categoryData.max_limit} websites`;
+        websitesTotalResults = categoryData.max_limit;
+        websitesTotalPages = Math.ceil(websitesTotalResults / resultsPerPage);
+
+        let resultsDiv = document.getElementById("websitesResults");
+        resultsDiv.innerHTML = "";
+
+        if (!websites.length) {
+            resultsDiv.innerHTML = "<p class='text-danger'>No websites found.</p>";
+            return;
+        }
+
+        const paginatedWebsites = websites.slice(startIndex, endIndex);
+        paginatedWebsites.forEach(({ title, link }) => {
+            let itemDiv = document.createElement("div");
+            itemDiv.className = "result-group";
+            itemDiv.innerHTML = `
+                <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
+            `;
+            resultsDiv.appendChild(itemDiv);
+            preloadPage(link);
+        });
+
+        updateWebsitesPagination();
+    }
+
+    function updateWebsitesPagination() {
+        let pageNumbersDiv = document.getElementById("websitesPageNumbers");
+        pageNumbersDiv.innerHTML = "";
+
+        for (let i = 1; i <= websitesTotalPages; i++) {
+            let btn = document.createElement("button");
+            btn.innerText = i;
+            btn.className = `btn ${i === websitesCurrentPage ? "btn-primary" : "btn-outline-secondary"} mx-1`;
+            btn.onclick = () => displayWebsites(i);
+            pageNumbersDiv.appendChild(btn);
+        }
+
+        document.getElementById("websitesPrevButton").disabled = websitesCurrentPage === 1;
+        document.getElementById("websitesNextButton").disabled = websitesCurrentPage === websitesTotalPages;
+    }
+
+    function websitesNextPage() {
+        if (websitesCurrentPage < websitesTotalPages) {
+            displayWebsites(websitesCurrentPage + 1);
+        }
+    }
+
+    function websitesPrevPage() {
+        if (websitesCurrentPage > 1) {
+            displayWebsites(websitesCurrentPage - 1);
+        }
+    }
+</script>
 </body>
 </html>
