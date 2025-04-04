@@ -119,9 +119,10 @@
         totalResults = 0,
         sortBy = "",
         groupedResults = [],
-        preloadedPages = {}; // stores preloaded pages to avoid fetching them again
+        preloadedPages = {}, // stores preloaded pages to avoid fetching them again
+        proxiedDomains = new Set();
 
-    // Websites variables
+    // Websites Preview variables
     let websitesCategories = {},
         currentCategory = "",
         websitesCurrentPage = 1,
@@ -131,7 +132,25 @@
     // [DEBUG]: reference variables for debugging
     let R = [], G = [], P = [], W = {}, PP = preloadedPages,
         I = document.getElementById("previewFrame");
+    
+    Object.defineProperty(window, "PD", { // [DEBUG]: ensures PD points to the latest proxiedDomains
+        get: () => proxiedDomains
+    });
 
+    // Load proxied websites domain from 'proxied_domains.txt'
+    function loadProxiedDomains() {
+        fetch('/proxied_domains')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Failed to load proxied domains: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(domains => proxiedDomains = new Set(domains) )
+            .catch(error => console.error('Error loading proxied domains:', error));
+    }
+    document.addEventListener('DOMContentLoaded', loadProxiedDomains);
+    
     // Tab toggle
     function toggleTab() {
         const googleTab = document.getElementById("googleSearchTab");
@@ -208,11 +227,14 @@
                     <p class="result-snippet">${snippet}</p>
                 `;
                 nestedResults.appendChild(listItem);
-                preloadPage(link); // preload only for the current page
             });
 
             domainDiv.appendChild(nestedResults);
             resultsDiv.appendChild(domainDiv);
+
+            if (proxiedDomains.has(domain)) {
+                nestedItems.forEach(({ link }) => preloadPage(link));
+            }
         });
 
         updatePagination();
@@ -256,27 +278,35 @@
     function preloadPage(url) {
         if (!preloadedPages[url]) {
             fetch(`/proxy?url=${encodeURIComponent(url)}`)
-                .then(response => response.text())
-                .then(html => { preloadedPages[url] = html; })
-                .catch(error => console.error("Error preloading:", error));
-        }
-    }
-
-    function reloadPage(url) { // [DEBUG]
-        if (preloadedPages[url]) {
-            fetch(`/proxy?url=${encodeURIComponent(url)}`)
-                .then(response => response.text())
-                .then(html => { preloadedPages[url] = html; })
-                .catch(error => console.error("Error re-loading:", error));
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.text();
+                })
+                .then(html => {
+                    preloadedPages[url] = html; // only set if response is OK
+                })
+                .catch(error => console.error(`Error preloading ${url}:`, error));
         }
     }
 
     function loadPage(url) {
+        const iframe = document.getElementById("previewFrame");
         if (preloadedPages[url]) {
-            document.getElementById("previewFrame").srcdoc = preloadedPages[url];
+            iframe.srcdoc = preloadedPages[url];
         } else {
-            document.getElementById("previewFrame").src = `/proxy?url=${encodeURIComponent(url)}`;
+            console.log("Page not preloaded. Fetching from server..."); // [TEMP]
+            iframe.removeAttribute("srcdoc"); // remove srcdoc to ensure src takes effect
+            iframe.src = url;
         }
+    }
+
+    function reloadPage(url) { // [DEBUG]
+        console.log("Page not preloaded. Fetching from server...");
+        const iframe = document.getElementById("previewFrame");
+        iframe.removeAttribute("srcdoc"); // remove srcdoc to ensure src takes effect
+        iframe.src = url;
     }
 
     function updatePagination() {
@@ -365,7 +395,15 @@
                 <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
             `;
             resultsDiv.appendChild(itemDiv);
-            preloadPage(link);
+            
+            try { // [NOTE]: needs testing, right now 'websites.xlsx' contains invalid URLs
+                const domain = new URL(link).hostname;
+                if (proxiedDomains.has(domain)) {
+                    preloadPage(link);
+                }
+            } catch (error) {
+                console.error(`Error processing URL "${link}":`, error);
+            }
         });
 
         updateWebsitesPagination();

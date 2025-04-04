@@ -121,24 +121,24 @@ def refine_breadcrumb_trail(segments):
     return " > ".join(formatted_segments)
 
 
-def fetch_all_results_in_serial(query, sort_by):  # [NOTE]: for testing purposes as fallback
-    """Fetch search results for a query sequentially using pagination from Google API."""
-    all_results = []
-    total_results, total_search_time = 0, 0
-    next_start = 1
+# def fetch_all_results_in_serial(query, sort_by):  # [NOTE]: for testing purposes as fallback
+#     """Fetch search results for a query sequentially using pagination from Google API."""
+#     all_results = []
+#     total_results, total_search_time = 0, 0
+#     next_start = 1
     
-    while next_start and len(all_results) < MAX_LIMIT:
-        results, next_start, total_results, search_time = google_search(query, next_start, sort_by)
-        # app.logger.info(f"\n\n[DEBUG]: start={next_start}, results_count={len(results)}\n----------\n")
+#     while next_start and len(all_results) < MAX_LIMIT:
+#         results, next_start, total_results, search_time = google_search(query, next_start, sort_by)
+#         # app.logger.info(f"\n\n[DEBUG]: start={next_start}, results_count={len(results)}\n----------\n")
         
-        # Add results to our collection
-        all_results.extend(results)
-        total_search_time += search_time
+#         # Add results to our collection
+#         all_results.extend(results)
+#         total_search_time += search_time
     
-    return all_results, total_results, round(total_search_time, 2)
+#     return all_results, total_results, round(total_search_time, 2)
 
 
-def fetch_all_results(query, sort_by):  # [NOTE]: needs more testing
+def fetch_all_results(query, sort_by):
     """Fetch search results for a query dynamically using parallel requests."""
     # First, make a single request to get initial results and total count
     results, next_start, total_results, search_time = google_search(query, 1, sort_by)
@@ -206,11 +206,15 @@ def proxy():
     url = request.args.get("url")
     if not url:
         return "Error: No URL provided", 400
-
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5"
+    }
     try:
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if response.status_code != 200:
-            return "Error fetching page", 500
+        response = requests.get(url, headers=headers, timeout=10) # [NOTE]: timeout & headers may need to be adjusted (for edge cases)
+        response.raise_for_status()  # raises HTTPError for 4xx/5xx statuses
         
         html = response.text
         domain = re.match(r"https?://[^/]+", url).group(0)  # extract base domain
@@ -255,6 +259,18 @@ def import_websites():
     except Exception as e:
         app.logger.error(f"\n\n[ERROR]: Importing websites -> {e}\n----------\n")
         return jsonify({"error": "Failed to import websites"}), 500
+
+
+@app.route("/proxied_domains")
+def get_proxied_domains():
+    try:
+        with open('proxied_websites.txt', 'r') as f:
+            domains = [line.strip() for line in f if line.strip()]
+        return jsonify(list(domains))
+    
+    except Exception as e:
+        app.logger.error(f"\n\n[ERROR]: Loading proxied domains -> {e}\n----------\n")
+        return jsonify([]), 500
 
 
 if __name__ == "__main__":
