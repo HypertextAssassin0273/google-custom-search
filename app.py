@@ -1,16 +1,107 @@
 from flask import Flask, request, jsonify, render_template
-from dotenv import load_dotenv
-import os, requests, re, json, concurrent.futures
-import pandas as pd
+import requests, concurrent.futures, pandas as pd
+from dotenv import dotenv_values
+from re import sub, match
+from json import dumps
 
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers.polling import PollingObserver
+from threading import Thread, Event
+from time import time, sleep
+from os import environ, path
+import atexit, logging
+
+
+MAX_RESULTS, MAX_QUERIES = 10, 10
+MAX_LIMIT = MAX_RESULTS * MAX_QUERIES
+
+# Set directory for data files
+DATA_DIR = path.join('data', '')
+
+# Ensure the data directory exists
+if not path.exists(DATA_DIR):
+    raise FileNotFoundError(f"Data directory '{DATA_DIR}' does not exist.")
+
+# Initialize Flask app
 app = Flask(__name__)
 
-load_dotenv()
-API_KEY = os.getenv("API_KEY")
-SEARCH_ENGINE_ID = os.getenv("SEARCH_ENGINE_ID")
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+app.logger.setLevel(logging.INFO)
 
-MAX_RESULTS, MAX_QUERIES = 10, 5  # [NOTE]: limiting queries for testing purposes
-MAX_LIMIT = MAX_RESULTS * MAX_QUERIES 
+# Initialize watchdog
+observer = PollingObserver()
+running = Event()  # flag to control thread lifecycle
+
+# Load search engines and API keys from separate .env files as dictionaries
+search_engines = dotenv_values(DATA_DIR + 'search_engines.env')
+api_keys = dotenv_values(DATA_DIR + 'api_keys.env')
+
+# Set defaults to the first entry from each file
+API_KEY = next(iter(api_keys.values())) if api_keys else None
+SEARCH_ENGINE_ID = next(iter(search_engines.values())) if search_engines else None
+
+# Validate that the required environment variables are set
+if not API_KEY or not SEARCH_ENGINE_ID:
+    raise ValueError("Either any of the .env files is missing or they are empty!")
+
+
+# Watchdog handler to fetch changes on any file in the data directory
+class WatchdogFileHandler(FileSystemEventHandler):
+    """Handles file system events for the watchdog observer."""
+    def __init__(self):
+        self.last_reload = time()  # debounce to avoid rapid reloads
+
+    def on_modified(self, event):
+        # Debounce: only reload if 1 second has passed since last change
+        if time() - self.last_reload < 1: return
+
+        if event.src_path.endswith('search_engines.env'):
+            global search_engines
+            search_engines = dotenv_values('search_engines.env')
+            app.logger.info(f"Reloaded search_engines.env: {search_engines}")
+        
+        elif event.src_path.endswith('api_keys.env'):
+            global api_keys
+            api_keys = dotenv_values('api_keys.env')
+            app.logger.info(f"Reloaded api_keys.env: {api_keys}")
+        
+        self.last_reload = time()
+
+
+def start_watchdog():
+    """Start the watchdog observer in a separate thread to monitor files in data directory."""
+    app.logger.info("Attempting to start watchdog thread")  # [DEBUG]
+    try:
+        observer.schedule(event_handler=WatchdogFileHandler(), path=DATA_DIR)
+        observer.start()
+        running.set()  # mark as running
+        app.logger.info("Started watchdog observer for data files")
+
+        while running.is_set():
+            sleep(1)  # keep thread alive
+    
+    except Exception as e:
+        app.logger.error(f"Error in watchdog thread: {e}")
+
+    finally:
+        observer.stop()
+        observer.join()
+        app.logger.info("Watchdog observer stopped")
+
+
+def stop_watchdog():
+    """Stop the watchdog observer and clean up resources."""
+    if running.is_set():
+        running.clear()  # signal thread to stop
+        observer.stop()
+        observer.join()
+        app.logger.info("Watchdog shutdown via atexit")
+    
+    # Join the thread if it exists
+    watchdog_thread = app.config.get('WATCHDOG_THREAD')
+    if watchdog_thread and watchdog_thread.is_alive():
+        watchdog_thread.join()
 
 
 def google_search(query, start, sort_by):
@@ -31,7 +122,7 @@ def google_search(query, start, sort_by):
         # app.logger.info(f"\n\n[DEBUG]: response={json_response}\n----------\n")
 
         # Pretty print JSON response (for debugging)
-        json_dump = json.dumps(json_response, indent=2)
+        json_dump = dumps(json_response, indent=2)
         app.logger.info(f"\n\n[DEBUG]: response={json_dump}")
         app.logger.info("\n----------\n")
 
@@ -103,8 +194,8 @@ def extract_breadcrumb_trail(item):
         return " > ".join(trail)
     
     else: # Construct trail from URL as fallback
-        url_part = re.sub(r'https?://', '', item.get("link"))         # remove protocol
-        trail = re.sub(r'(.*?)(\?|\.php|\.html).*', r'\1', url_part)  # remove query params & file extension
+        url_part = sub(r'https?://', '', item.get("link"))         # remove protocol
+        trail = sub(r'(.*?)(\?|\.php|\.html).*', r'\1', url_part)  # remove query params & file extension
         # app.logger.info(f"\n\n[DEBUG]: url={url_part}, trail={trail}\n----------\n")
         return refine_breadcrumb_trail(trail.split("/"))
 
@@ -217,10 +308,10 @@ def proxy():
         response.raise_for_status()  # raises HTTPError for 4xx/5xx statuses
         
         html = response.text
-        domain = re.match(r"https?://[^/]+", url).group(0)  # extract base domain
+        domain = match(r"https?://[^/]+", url).group(0)  # extract base domain
 
         # Fix relative links by injecting <base> tag in <head> section of HTML
-        html = re.sub(r"(<head[^>]*>)", rf"\1<base href='{domain}/'>", html, count=1)
+        html = sub(r"(<head[^>]*>)", rf"\1<base href='{domain}/'>", html, count=1)
 
         return html
     
@@ -234,7 +325,7 @@ def import_websites():
     """Import websites from a .xlsx file and return categorized data."""
     try:
         # Read the Excel file with multiple sheets
-        xl = pd.ExcelFile('websites.xlsx')
+        xl = pd.ExcelFile(DATA_DIR + 'websites.xlsx')
         categories = {}
         
         # Process each sheet as a category
@@ -249,13 +340,14 @@ def import_websites():
                 ]
                 categories[sheet_name] = {
                     "websites": websites,
-                    "max_limit": len(websites)  # Dynamic max limit per category
+                    "max_limit": len(websites)  # dynamic max limit per category
                 }
         
         return jsonify({
             "categories": categories,
             "default_category": list(categories.keys())[0] if categories else None
         })
+    
     except Exception as e:
         app.logger.error(f"\n\n[ERROR]: Importing websites -> {e}\n----------\n")
         return jsonify({"error": "Failed to import websites"}), 500
@@ -263,8 +355,9 @@ def import_websites():
 
 @app.route("/proxied_domains")
 def get_proxied_domains():
+    """Fetch proxied websites domain from a text file."""
     try:
-        with open('proxied_websites.txt', 'r') as f:
+        with open(DATA_DIR + 'proxied_websites.txt', 'r') as f:
             domains = [line.strip() for line in f if line.strip()]
         return jsonify(list(domains))
     
@@ -273,5 +366,55 @@ def get_proxied_domains():
         return jsonify([]), 500
 
 
+@app.route('/get_settings_options')
+def get_settings_options():
+    """Return available search engine and API key names only from .env files."""
+    return jsonify({
+        'searchEngines': list(search_engines.keys()),
+        'apiKeys': list(api_keys.keys())
+    })
+
+
+@app.route('/update_settings', methods=['POST'])
+def update_settings():
+    """Update global settings based on user input."""
+    global MAX_QUERIES, MAX_LIMIT, SEARCH_ENGINE_ID, API_KEY
+    try:
+        data = request.get_json()
+        MAX_QUERIES = int(data['maxQueries'])
+        MAX_LIMIT = MAX_RESULTS * MAX_QUERIES
+        
+        # Use the selected name directly from the dictionaries or fallback to current values
+        SEARCH_ENGINE_ID = search_engines.get(data['searchEngine'], SEARCH_ENGINE_ID)
+        API_KEY = api_keys.get(data['apiKey'], API_KEY)
+        return jsonify({'success': True})
+    
+    except Exception as e:
+        app.logger.error(f"\n\n[ERROR]: Updating settings -> {e}\n----------\n")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    """Main entry point for the Flask application."""
+    app.logger.info("[DEBUG]: Starting main block")
+
+    # Register shutdown hook to ensure watchdog stops on exit
+    atexit.register(stop_watchdog)
+
+    # Start watchdog only in the actual app process, not the reloader parent
+    if environ.get("WERKZEUG_RUN_MAIN") == "true":  # [NOTE]: in production, we might need to change the condition
+        app.logger.info("[DEBUG]: Starting watchdog in child process")
+        watchdog_thread = Thread(target=start_watchdog)  # non-daemon thread
+        watchdog_thread.start()
+        app.config['WATCHDOG_THREAD'] = watchdog_thread  # store thread for shutdown
+    
+    else:
+        app.logger.info("[DEBUG]: Running in reloader parent, skipping watchdog start")
+
+    # Start the Flask app
+    try:
+        app.logger.info("[DEBUG]: Starting Flask app")
+        app.run(debug=True)
+
+    finally:
+        stop_watchdog()  # ensure watchdog stops on exit

@@ -67,6 +67,7 @@
 
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <span id="totalResults"></span>
+                <button class="btn btn-outline-secondary me-2" onclick="openSettingsModal()">Advanced Settings</button>
                 <select id="sortBy" class="form-select w-auto" onchange="performSearch(1)">
                     <option value="" selected>Sort by: Relevance</option>
                     <option value="date">Sort by: Date</option>
@@ -81,6 +82,28 @@
                 <div id="pageNumbers"></div>
                 <button id="nextButton" class="btn btn-secondary" onclick="nextPage()" disabled>Next</button>
             </div>
+        </div>
+
+        <!-- Modal for Advanced Settings -->
+        <div id="settingsModal" class="modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border: 1px solid #ccc; z-index: 1000;">
+            <h3>Advanced Settings</h3>
+            <form id="settingsForm">
+                <div class="mb-3">
+                    <label for="pagesSlider"><b><i>Pages (1-10):</i></b></label>
+                    <input type="range" id="pagesSlider" name="maxQueries" min="1" max="10" value="10" class="form-range">
+                    <span id="pagesValue">10</span>
+                </div>
+                <div class="mb-3">
+                    <label for="searchEngineSelect"><b><i>Search Engine:</i></b></label>
+                    <select id="searchEngineSelect" name="searchEngine" class="form-select"></select>
+                </div>
+                <div class="mb-3">
+                    <label for="apiSelect"><b><i>API:</i></b></label>
+                    <select id="apiSelect" name="apiKey" class="form-select"></select>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="saveSettings()">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="closeSettingsModal()">Cancel</button>
+            </form>
         </div>
 
         <!-- Websites Tab -->
@@ -149,7 +172,6 @@
             .then(domains => proxiedDomains = new Set(domains) )
             .catch(error => console.error('Error loading proxied domains:', error));
     }
-    document.addEventListener('DOMContentLoaded', loadProxiedDomains);
     
     // Tab toggle
     function toggleTab() {
@@ -436,6 +458,89 @@
             displayWebsites(websitesCurrentPage - 1);
         }
     }
+
+    // Open modal
+    function openSettingsModal() {
+        document.getElementById('settingsModal').style.display = 'block';
+    }
+
+    // Close modal
+    function closeSettingsModal() {
+        document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    // Initialize slider for pages value display
+    function initSlider() {
+        const slider = document.getElementById('pagesSlider');
+        const valueSpan = document.getElementById('pagesValue');
+        slider.addEventListener('input', () => {
+            valueSpan.textContent = slider.value;
+        });
+    }
+
+    // Load settings options from Flask
+    function loadSettingsOptions() {
+        fetch('/get_settings_options')
+            .then(response => response.json())
+            .then(data => {
+                // Populate Search Engine dropdown
+                const searchEngineSelect = document.getElementById('searchEngineSelect');
+                searchEngineSelect.innerHTML = '';
+                data.searchEngines.forEach((name, index) => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.text = name;
+                    if (index === 0) option.selected = true; // Default to first
+                    searchEngineSelect.appendChild(option);
+                });
+
+                // Populate API dropdown
+                const apiSelect = document.getElementById('apiSelect');
+                apiSelect.innerHTML = '';
+                data.apiKeys.forEach((name, index) => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.text = name;
+                    if (index === 0) option.selected = true; // Default to first
+                    apiSelect.appendChild(option);
+                });
+            })
+            .catch(error => console.error('Error loading settings options:', error));
+    }
+
+    // Save settings
+    function saveSettings() {
+        const form = document.getElementById('settingsForm');
+        const formData = new FormData(form);
+        const settings = {
+            maxQueries: formData.get('maxQueries'),
+            searchEngine: formData.get('searchEngine'),
+            apiKey: formData.get('apiKey')
+        };
+
+        fetch('/update_settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('Settings updated:', settings);
+                closeSettingsModal();
+            } else {
+                alert('Failed to update settings: ' + data.error);
+            }
+        })
+        .catch(error => console.error('Error saving settings:', error));
+    }
+
+    // Initialize settings UI and app data on DOM load
+    document.addEventListener('DOMContentLoaded', () => {
+        initSlider();
+        loadProxiedDomains();
+        loadSettingsOptions();
+    });
 </script>
 </body>
 </html>
