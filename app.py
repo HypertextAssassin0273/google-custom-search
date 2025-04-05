@@ -58,12 +58,12 @@ class WatchdogFileHandler(FileSystemEventHandler):
 
         if event.src_path.endswith('search_engines.env'):
             global search_engines
-            search_engines = dotenv_values('search_engines.env')
+            search_engines = dotenv_values(DATA_DIR + 'search_engines.env')
             app.logger.info(f"Reloaded search_engines.env: {search_engines}")
         
         elif event.src_path.endswith('api_keys.env'):
             global api_keys
-            api_keys = dotenv_values('api_keys.env')
+            api_keys = dotenv_values(DATA_DIR + 'api_keys.env')
             app.logger.info(f"Reloaded api_keys.env: {api_keys}")
         
         self.last_reload = time()
@@ -122,9 +122,9 @@ def google_search(query, start, sort_by):
         # app.logger.info(f"\n\n[DEBUG]: response={json_response}\n----------\n")
 
         # Pretty print JSON response (for debugging)
-        json_dump = dumps(json_response, indent=2)
-        app.logger.info(f"\n\n[DEBUG]: response={json_dump}")
-        app.logger.info("\n----------\n")
+        # json_dump = dumps(json_response, indent=2)
+        # app.logger.info(f"\n\n[DEBUG]: response={json_dump}")
+        # app.logger.info("\n----------\n")
 
         # Check for Google API specific errors
         if 'error' in json_response:

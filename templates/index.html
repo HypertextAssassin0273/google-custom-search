@@ -19,6 +19,7 @@
             padding: 15px;
             overflow-y: auto;
             border-right: 1px solid #ccc;
+            position: relative; /* For modal positioning */
         }
         .right-pane {
             width: 50%;
@@ -48,6 +49,72 @@
         /* Tab styles */
         .tab-content { display: none; }
         .tab-content.active { display: block; }
+
+        /* Custom Slider */
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+        }
+        .custom-slider {
+            width: 50%;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 8px;
+            background: #cce5ff; /* Light blue track */
+            border-radius: 5px;
+            outline: none;
+            transition: background 0.3s;
+        }
+        .custom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #007bff; /* Primary blue */
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+            transition: background 0.3s;
+        }
+        .custom-slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #007bff; /* Primary blue */
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+        }
+        .custom-slider:hover::-webkit-slider-thumb,
+        .custom-slider:hover::-moz-range-thumb {
+            background: #0056b3; /* Darker blue on hover */
+        }
+        .custom-slider::-webkit-slider-runnable-track {
+            background: linear-gradient(to right, #007bff 0%, #007bff var(--value), #cce5ff var(--value), #cce5ff 100%);
+        }
+        .custom-slider::-moz-range-track {
+            background: #cce5ff; /* Light blue track */
+        }
+        .custom-slider {
+            --value: 100%;
+        }
+
+        /* Modal Styles */
+        #settingsModal {
+            display: none;
+            position: absolute;
+            top: 100px; /* Adjust as needed */
+            left: 20px; /* Position over left pane */
+            background: white;
+            padding: 20px;
+            border: 1px solid #ccc;
+            z-index: 1000;
+            width: auto; /* Fit to content width */
+            max-width: 90%; /* Prevent overflow */
+            height: auto; /* Fit to content height */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
     </style>    
 </head>
 <body>
@@ -55,7 +122,7 @@
 <div class="container-fluid">
     <!-- Left pane: Toggle and content -->
     <div class="left-pane">
-        <button class="btn btn-secondary mb-3" onclick="toggleTab()">Toggle Tab</button>
+        <button id="toggleTabButton" class="btn btn-secondary mb-3" onclick="toggleTab()">Open Web Previewer</button>
         
         <!-- Google Custom Search Tab -->
         <div id="googleSearchTab" class="tab-content active">
@@ -67,11 +134,13 @@
 
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <span id="totalResults"></span>
-                <button class="btn btn-outline-secondary me-2" onclick="openSettingsModal()">Advanced Settings</button>
-                <select id="sortBy" class="form-select w-auto" onchange="performSearch(1)">
-                    <option value="" selected>Sort by: Relevance</option>
-                    <option value="date">Sort by: Date</option>
-                </select>
+                <div class="d-flex align-items-center">
+                    <button id="settingsButton" class="btn btn-outline-secondary me-2" onclick="openSettingsModal()">Advanced Settings</button>
+                    <select id="sortBy" class="form-select w-auto" onchange="performSearch(1)">
+                        <option value="" selected>Sort by: Relevance</option>
+                        <option value="date">Sort by: Date</option>
+                    </select>
+                </div>
             </div>
 
             <div id="loading" style="display: none;">Loading...</div>
@@ -85,13 +154,15 @@
         </div>
 
         <!-- Modal for Advanced Settings -->
-        <div id="settingsModal" class="modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border: 1px solid #ccc; z-index: 1000;">
+        <div id="settingsModal" class="modal">
             <h3>Advanced Settings</h3>
             <form id="settingsForm">
                 <div class="mb-3">
                     <label for="pagesSlider"><b><i>Pages (1-10):</i></b></label>
-                    <input type="range" id="pagesSlider" name="maxQueries" min="1" max="10" value="10" class="form-range">
-                    <span id="pagesValue">10</span>
+                    <div class="slider-container">
+                        <input type="range" id="pagesSlider" name="maxQueries" min="1" max="10" value="10" class="custom-slider">
+                        <span id="pagesValue">10</span>
+                    </div>
                 </div>
                 <div class="mb-3">
                     <label for="searchEngineSelect"><b><i>Search Engine:</i></b></label>
@@ -101,7 +172,7 @@
                     <label for="apiSelect"><b><i>API:</i></b></label>
                     <select id="apiSelect" name="apiKey" class="form-select"></select>
                 </div>
-                <button type="button" class="btn btn-primary" onclick="saveSettings()">Save</button>
+                <button type="button" id="saveButton" class="btn btn-primary" onclick="saveSettings()" disabled>Save</button>
                 <button type="button" class="btn btn-secondary" onclick="closeSettingsModal()">Cancel</button>
             </form>
         </div>
@@ -152,6 +223,9 @@
         websitesTotalPages = 0,
         websitesTotalResults = 0;
 
+    // Initial settings for reset
+    let initialSettings = {};
+
     // [DEBUG]: reference variables for debugging
     let R = [], G = [], P = [], W = {}, PP = preloadedPages,
         I = document.getElementById("previewFrame");
@@ -164,26 +238,28 @@
     function loadProxiedDomains() {
         fetch('/proxied_domains')
             .then(response => {
-                if (!response.ok) {
-                    throw new Error(`Failed to load proxied domains: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Failed to load proxied domains: ${response.status}`);
                 return response.json();
             })
-            .then(domains => proxiedDomains = new Set(domains) )
+            .then(domains => proxiedDomains = new Set(domains))
             .catch(error => console.error('Error loading proxied domains:', error));
     }
     
-    // Tab toggle
+    // Toggle tab and update button text
     function toggleTab() {
         const googleTab = document.getElementById("googleSearchTab");
         const websitesTab = document.getElementById("websitesTab");
+        const toggleButton = document.getElementById("toggleTabButton");
+        
         if (googleTab.classList.contains("active")) {
             googleTab.classList.remove("active");
             websitesTab.classList.add("active");
+            toggleButton.textContent = "Open Custom Search";
             loadWebsites();
         } else {
             websitesTab.classList.remove("active");
             googleTab.classList.add("active");
+            toggleButton.textContent = "Open Web Previewer";
         }
     }
 
@@ -301,14 +377,10 @@
         if (!preloadedPages[url]) {
             fetch(`/proxy?url=${encodeURIComponent(url)}`)
                 .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     return response.text();
                 })
-                .then(html => {
-                    preloadedPages[url] = html; // only set if response is OK
-                })
+                .then(html => preloadedPages[url] = html) // only set if response is OK
                 .catch(error => console.error(`Error preloading ${url}:`, error));
         }
     }
@@ -348,15 +420,11 @@
     }
 
     function nextPage() {
-        if (currentPage < totalPages) {
-            displayResults(currentPage + 1);
-        }
+        if (currentPage < totalPages) displayResults(currentPage + 1);
     }
 
     function prevPage() {
-        if (currentPage > 1) {
-            displayResults(currentPage - 1);
-        }
+        if (currentPage > 1) displayResults(currentPage - 1);
     }
 
     // Websites functions
@@ -420,9 +488,7 @@
             
             try { // [NOTE]: needs testing, right now 'websites.xlsx' contains invalid URLs
                 const domain = new URL(link).hostname;
-                if (proxiedDomains.has(domain)) {
-                    preloadPage(link);
-                }
+                if (proxiedDomains.has(domain)) preloadPage(link);
             } catch (error) {
                 console.error(`Error processing URL "${link}":`, error);
             }
@@ -448,67 +514,129 @@
     }
 
     function websitesNextPage() {
-        if (websitesCurrentPage < websitesTotalPages) {
-            displayWebsites(websitesCurrentPage + 1);
-        }
+        if (websitesCurrentPage < websitesTotalPages) displayWebsites(websitesCurrentPage + 1);
     }
 
     function websitesPrevPage() {
-        if (websitesCurrentPage > 1) {
-            displayWebsites(websitesCurrentPage - 1);
-        }
+        if (websitesCurrentPage > 1) displayWebsites(websitesCurrentPage - 1);
     }
 
-    // Open modal
-    function openSettingsModal() {
-        document.getElementById('settingsModal').style.display = 'block';
-    }
-
-    // Close modal
-    function closeSettingsModal() {
-        document.getElementById('settingsModal').style.display = 'none';
-    }
-
-    // Initialize slider for pages value display
+    // Slider and Modal functions
     function initSlider() {
         const slider = document.getElementById('pagesSlider');
         const valueSpan = document.getElementById('pagesValue');
-        slider.addEventListener('input', () => {
+        
+        window.updateSlider = function() {
             valueSpan.textContent = slider.value;
-        });
+            const percentage = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
+            slider.style.setProperty('--value', `${percentage}%`);
+            updateSaveButtonState(); // Check button state on slider change
+        };
+        
+        slider.addEventListener('input', updateSlider);
+        updateSlider();
     }
 
-    // Load settings options from Flask
+    function openSettingsModal() {
+        const form = document.getElementById('settingsForm');
+        initialSettings = {
+            maxQueries: form.maxQueries.value,
+            searchEngine: form.searchEngineSelect.value,
+            apiKey: form.apiSelect.value
+        };
+        document.getElementById('settingsModal').style.display = 'block';
+        updateSlider();
+        updateSaveButtonState(); // Ensure button state is correct on open
+    }
+
+    function closeSettingsModal() {
+        const form = document.getElementById('settingsForm');
+        form.maxQueries.value = initialSettings.maxQueries;
+        form.searchEngineSelect.value = initialSettings.searchEngine;
+        form.apiSelect.value = initialSettings.apiKey;
+        document.getElementById('pagesValue').textContent = initialSettings.maxQueries;
+        document.getElementById('settingsModal').style.display = 'none';
+        updateSlider();
+    }
+
+    // Close modal on any click outside
+    document.addEventListener('click', (event) => {
+        const modal = document.getElementById('settingsModal');
+        const settingsButton = document.getElementById('settingsButton');
+        if (modal.style.display === 'block' && !modal.contains(event.target) && !settingsButton.contains(event.target)) {
+            closeSettingsModal(); // Cancel changes and close
+        }
+    });
+
+    // Update Save button state based on form changes
+    function updateSaveButtonState() {
+        const form = document.getElementById('settingsForm');
+        const saveButton = document.getElementById('saveButton');
+        const currentSettings = {
+            maxQueries: form.maxQueries.value,
+            searchEngine: form.searchEngineSelect.value,
+            apiKey: form.apiSelect.value
+        };
+
+        const hasChanges = (
+            currentSettings.maxQueries !== initialSettings.maxQueries ||
+            currentSettings.searchEngine !== initialSettings.searchEngine ||
+            currentSettings.apiKey !== initialSettings.apiKey
+        );
+
+        saveButton.disabled = !hasChanges;
+    }
+
     function loadSettingsOptions() {
         fetch('/get_settings_options')
             .then(response => response.json())
             .then(data => {
-                // Populate Search Engine dropdown
                 const searchEngineSelect = document.getElementById('searchEngineSelect');
+                const apiSelect = document.getElementById('apiSelect');
                 searchEngineSelect.innerHTML = '';
-                data.searchEngines.forEach((name, index) => {
+                apiSelect.innerHTML = '';
+
+                // Load saved settings from localStorage
+                const savedSettings = JSON.parse(localStorage.getItem('searchSettings')) || {};
+                const savedSearchEngine = savedSettings.searchEngine || data.searchEngines[0];
+                const savedApiKey = savedSettings.apiKey || data.apiKeys[0];
+
+                data.searchEngines.forEach(name => {
                     const option = document.createElement('option');
                     option.value = name;
                     option.text = name;
-                    if (index === 0) option.selected = true; // Default to first
+                    if (name === savedSearchEngine) option.selected = true;
                     searchEngineSelect.appendChild(option);
                 });
 
-                // Populate API dropdown
-                const apiSelect = document.getElementById('apiSelect');
-                apiSelect.innerHTML = '';
-                data.apiKeys.forEach((name, index) => {
+                data.apiKeys.forEach(name => {
                     const option = document.createElement('option');
                     option.value = name;
                     option.text = name;
-                    if (index === 0) option.selected = true; // Default to first
+                    if (name === savedApiKey) option.selected = true;
                     apiSelect.appendChild(option);
                 });
+
+                // Reset pages to default (10) on load
+                document.getElementById('pagesSlider').value = 10;
+                document.getElementById('pagesValue').textContent = '10';
+                updateSlider();
+
+                // Update initialSettings to reflect loaded values
+                initialSettings = {
+                    maxQueries: '10',
+                    searchEngine: savedSearchEngine,
+                    apiKey: savedApiKey
+                };
+
+                // Add change listeners to form elements
+                const form = document.getElementById('settingsForm');
+                form.addEventListener('change', updateSaveButtonState);
+                form.addEventListener('input', updateSaveButtonState); // For slider
             })
             .catch(error => console.error('Error loading settings options:', error));
     }
 
-    // Save settings
     function saveSettings() {
         const form = document.getElementById('settingsForm');
         const formData = new FormData(form);
@@ -527,6 +655,17 @@
         .then(data => {
             if (data.success) {
                 console.log('Settings updated:', settings);
+                // Save to localStorage
+                localStorage.setItem('searchSettings', JSON.stringify({
+                    searchEngine: settings.searchEngine,
+                    apiKey: settings.apiKey
+                }));
+                // Update initialSettings to reflect saved values
+                initialSettings = {
+                    maxQueries: settings.maxQueries,
+                    searchEngine: settings.searchEngine,
+                    apiKey: settings.apiKey
+                };
                 closeSettingsModal();
             } else {
                 alert('Failed to update settings: ' + data.error);
@@ -535,7 +674,7 @@
         .catch(error => console.error('Error saving settings:', error));
     }
 
-    // Initialize settings UI and app data on DOM load
+    // Initialize on DOM load
     document.addEventListener('DOMContentLoaded', () => {
         initSlider();
         loadProxiedDomains();
