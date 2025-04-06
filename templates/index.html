@@ -122,7 +122,10 @@
 <div class="container-fluid">
     <!-- Left pane: Toggle and content -->
     <div class="left-pane">
-        <button id="toggleTabButton" class="btn btn-secondary mb-3" onclick="toggleTab()">Open Web Previewer</button>
+        <div class="d-flex justify-content-between mb-3">
+            <button id="toggleTabButton" class="btn btn-secondary" onclick="toggleTab()">Open Web Previewer</button>
+            <button id="fetchButton" class="btn btn-outline-primary" onclick="fetchUpdates()">Refresh</button>
+        </div>
         
         <!-- Google Custom Search Tab -->
         <div id="googleSearchTab" class="tab-content active">
@@ -672,6 +675,15 @@
             }
         })
         .catch(error => console.error('Error saving settings:', error));
+    }
+
+    // Fetch updates manually
+    function fetchUpdates() {
+        console.log('Fetching updates...');
+        loadSettingsOptions();
+        loadProxiedDomains();
+        const websitesTab = document.getElementById('websitesTab');
+        if (websitesTab.classList.contains('active')) loadWebsites();
     }
 
     // Initialize on DOM load

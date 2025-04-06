@@ -7,7 +7,7 @@ from json import dumps
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 from threading import Thread, Event
-from time import time, sleep
+from time import sleep
 from os import environ, path
 import atexit, logging
 
@@ -45,49 +45,70 @@ SEARCH_ENGINE_ID = next(iter(search_engines.values())) if search_engines else No
 if not API_KEY or not SEARCH_ENGINE_ID:
     raise ValueError("Either any of the .env files is missing or they are empty!")
 
+# Global variables to track file states
+websites_data = {}
+proxied_domains = []
+
 
 # Watchdog handler to fetch changes on any file in the data directory
 class WatchdogFileHandler(FileSystemEventHandler):
     """Handles file system events for the watchdog observer."""
-    def __init__(self):
-        self.last_reload = time()  # debounce to avoid rapid reloads
-
     def on_modified(self, event):
-        # Debounce: only reload if 1 second has passed since last change
-        if time() - self.last_reload < 1: return
+        file_path = event.src_path
+        # app.logger.info(f"\n\n[DEBUG]: Event 'modified' detected - Path: {file_path}\n----------\n")
 
-        if event.src_path.endswith('search_engines.env'):
+        if file_path.endswith('search_engines.env'):
             global search_engines
             search_engines = dotenv_values(DATA_DIR + 'search_engines.env')
-            app.logger.info(f"Reloaded search_engines.env: {search_engines}")
+            app.logger.info(f" Reloaded search_engines.env: {search_engines}")
         
-        elif event.src_path.endswith('api_keys.env'):
+        elif file_path.endswith('api_keys.env'):
             global api_keys
             api_keys = dotenv_values(DATA_DIR + 'api_keys.env')
-            app.logger.info(f"Reloaded api_keys.env: {api_keys}")
+            app.logger.info(f" Reloaded api_keys.env: {api_keys}")
         
-        self.last_reload = time()
+        elif file_path.endswith('proxied_websites.txt'):
+            global proxied_domains
+            proxied_domains = load_proxied_domains_data()
+            app.logger.info(f" Reloaded proxied_websites.txt: {len(proxied_domains)} domains")
+    
+    def on_created(self, event):
+        if '~$' in event.src_path: return  # ignore temporary files (created by Excel)
+        # app.logger.info(f"\n\n[DEBUG]: Event 'created' detected - Path: {event.src_path}\n----------\n")
+        self.handle_websites_file(event.src_path)
+    
+    def on_moved(self, event):
+        # app.logger.info(f"\n\n[DEBUG]: Event 'moved' detected - Path: {event.dest_path}\n----------\n")
+        self.handle_websites_file(event.dest_path)
+    
+    @staticmethod
+    def handle_websites_file(path):
+        """Handle the websites file specifically."""
+        if path.endswith('websites.xlsx'):
+            global websites_data
+            websites_data = load_websites_data()
+            app.logger.info(f" Reloaded websites.xlsx: {len(websites_data.get('categories', {}))} categories")
 
 
 def start_watchdog():
     """Start the watchdog observer in a separate thread to monitor files in data directory."""
-    app.logger.info("Attempting to start watchdog thread")  # [DEBUG]
+    # app.logger.info("[DEBUG]: Attempting to start watchdog thread")
     try:
         observer.schedule(event_handler=WatchdogFileHandler(), path=DATA_DIR)
         observer.start()
         running.set()  # mark as running
-        app.logger.info("Started watchdog observer for data files")
+        app.logger.info(" Started watchdog observer for data files")
 
         while running.is_set():
             sleep(1)  # keep thread alive
     
     except Exception as e:
-        app.logger.error(f"Error in watchdog thread: {e}")
+        app.logger.error(f" Error in watchdog thread: {e}")
 
     finally:
         observer.stop()
         observer.join()
-        app.logger.info("Watchdog observer stopped")
+        app.logger.info(" Watchdog observer stopped")
 
 
 def stop_watchdog():
@@ -96,7 +117,7 @@ def stop_watchdog():
         running.clear()  # signal thread to stop
         observer.stop()
         observer.join()
-        app.logger.info("Watchdog shutdown via atexit")
+        app.logger.info(" Watchdog shutdown via atexit")
     
     # Join the thread if it exists
     watchdog_thread = app.config.get('WATCHDOG_THREAD')
@@ -266,6 +287,44 @@ def fetch_all_results(query, sort_by):
     return all_results, total_results, round(total_search_time, 2)
 
 
+def load_websites_data():
+    """Load websites data from websites.xlsx."""
+    try:
+        # Read Excel file with multiple sheets
+        with pd.ExcelFile(DATA_DIR + 'websites.xlsx') as xl:  # context manager ensures file is closed
+            categories = {}
+            # Process each sheet as a category
+            for sheet_name in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sheet_name)
+                # Ensure columns exist and clean data
+                if 'Website Name' in df.columns and 'Website Link' in df.columns:
+                    websites = [
+                        {"title": row['Website Name'], "link": row['Website Link']}
+                        for _, row in df.iterrows()
+                        if pd.notna(row['Website Name']) and pd.notna(row['Website Link'])
+                    ]
+                    categories[sheet_name] = {
+                        "websites": websites,
+                        "max_limit": len(websites)  # dynamic max limit per category
+                    }
+            return {"categories": categories, "default_category": list(categories.keys())[0] if categories else None}
+    
+    except Exception as e:
+        app.logger.error(f"\n\n[ERROR]: Loading websites -> {e}\n----------\n")
+        return {"categories": {}, "default_category": None}
+
+
+def load_proxied_domains_data():
+    """Load proxied domains from proxied_websites.txt."""
+    try:
+        with open(DATA_DIR + 'proxied_websites.txt', 'r') as f:
+            return [line.strip() for line in f if line.strip()]
+    
+    except Exception as e:
+        app.logger.error(f"\n\n[ERROR]: Loading proxied domains -> {e}\n----------\n")
+        return []
+
+
 @app.route("/")
 def home():
     """Renders the home page."""
@@ -323,47 +382,13 @@ def proxy():
 @app.route("/import_websites")
 def import_websites():
     """Import websites from a .xlsx file and return categorized data."""
-    try:
-        # Read the Excel file with multiple sheets
-        xl = pd.ExcelFile(DATA_DIR + 'websites.xlsx')
-        categories = {}
-        
-        # Process each sheet as a category
-        for sheet_name in xl.sheet_names:
-            df = pd.read_excel(xl, sheet_name=sheet_name)
-            # Ensure columns exist and clean data
-            if 'Website Name' in df.columns and 'Website Link' in df.columns:
-                websites = [
-                    {"title": row['Website Name'], "link": row['Website Link']}
-                    for _, row in df.iterrows()
-                    if pd.notna(row['Website Name']) and pd.notna(row['Website Link'])
-                ]
-                categories[sheet_name] = {
-                    "websites": websites,
-                    "max_limit": len(websites)  # dynamic max limit per category
-                }
-        
-        return jsonify({
-            "categories": categories,
-            "default_category": list(categories.keys())[0] if categories else None
-        })
-    
-    except Exception as e:
-        app.logger.error(f"\n\n[ERROR]: Importing websites -> {e}\n----------\n")
-        return jsonify({"error": "Failed to import websites"}), 500
+    return jsonify(websites_data)
 
 
 @app.route("/proxied_domains")
 def get_proxied_domains():
     """Fetch proxied websites domain from a text file."""
-    try:
-        with open(DATA_DIR + 'proxied_websites.txt', 'r') as f:
-            domains = [line.strip() for line in f if line.strip()]
-        return jsonify(list(domains))
-    
-    except Exception as e:
-        app.logger.error(f"\n\n[ERROR]: Loading proxied domains -> {e}\n----------\n")
-        return jsonify([]), 500
+    return jsonify(proxied_domains)
 
 
 @app.route('/get_settings_options')
@@ -396,25 +421,27 @@ def update_settings():
 
 if __name__ == "__main__":
     """Main entry point for the Flask application."""
-    app.logger.info("[DEBUG]: Starting main block")
+    # app.logger.info("[DEBUG]: Starting main block")
+
+    # Initialize global file states
+    websites_data = load_websites_data()
+    proxied_domains = load_proxied_domains_data()
 
     # Register shutdown hook to ensure watchdog stops on exit
     atexit.register(stop_watchdog)
 
     # Start watchdog only in the actual app process, not the reloader parent
     if environ.get("WERKZEUG_RUN_MAIN") == "true":  # [NOTE]: in production, we might need to change the condition
-        app.logger.info("[DEBUG]: Starting watchdog in child process")
+        # app.logger.info("[DEBUG]: Starting watchdog in child process")
         watchdog_thread = Thread(target=start_watchdog)  # non-daemon thread
         watchdog_thread.start()
         app.config['WATCHDOG_THREAD'] = watchdog_thread  # store thread for shutdown
-    
-    else:
-        app.logger.info("[DEBUG]: Running in reloader parent, skipping watchdog start")
+    # else:
+        # app.logger.info("[DEBUG]: Running in reloader parent, skipping watchdog start")
 
     # Start the Flask app
     try:
-        app.logger.info("[DEBUG]: Starting Flask app")
+        # app.logger.info("[DEBUG]: Starting Flask app")
         app.run(debug=True)
-
     finally:
         stop_watchdog()  # ensure watchdog stops on exit

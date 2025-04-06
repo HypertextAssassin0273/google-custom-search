@@ -71,4 +71,4 @@ You can use this feature to fetch some annoying websites faster, cache their con
 ### 3. Watchdog Support
 The application also provides a **watchdog** support, which monitors the changes in **data files** and automatically reloads the changes in the application.
 
-**Note:** currently, it only supports `.env` files, but can be easily extended to support other files in `data\` directory.
+**Note:** currently, it monitors both `.env` files along with `websites.xlsx` and `proxied_websites.txt` files.
