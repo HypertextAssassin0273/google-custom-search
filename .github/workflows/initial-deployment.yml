@@ -1,0 +1,26 @@
+name: Initial Deployment & Configuration for Flask App on VPS Server (e.g. App2)
+on:
+  push:
+    branches:
+      - init
+      # - v1
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        env:
+          APP_NAME: app2
+          DISPLAY_NAME: App 2
+          PORT: 5002
+          BRANCH: ${{ github.ref_name }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          SCRIPT_PATH: ${{ secrets.SCRIPTS_DIR }}/initial-deploy-app.sh
+        run: |
+          echo "$SSH_PRIVATE_KEY" > ssh_key
+          chmod 600 ssh_key
+          ssh -i ssh_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST \
+            "$SCRIPT_PATH $APP_NAME '$DISPLAY_NAME' $PORT $BRANCH $REPO_URL"
