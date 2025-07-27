@@ -2,21 +2,20 @@ from flask import Flask, request, jsonify, render_template
 import requests, concurrent.futures, pandas as pd
 from dotenv import dotenv_values
 from re import sub, match
-from json import dumps
+# from json import dumps
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 from threading import Thread, Event
 from time import sleep
-from os import environ, path
+from os import path
 import atexit, logging
 
 
 MAX_RESULTS, MAX_QUERIES = 10, 10
-MAX_LIMIT = MAX_RESULTS * MAX_QUERIES
 
 # Set directory for data files
-DATA_DIR = path.join('data', '')
+DATA_DIR = path.join(path.dirname(path.abspath(__file__)), 'data', '')  # ensure trailing slash for consistency
 
 # Ensure the data directory exists
 if not path.exists(DATA_DIR):
@@ -28,10 +27,6 @@ app = Flask(__name__)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 app.logger.setLevel(logging.INFO)
-
-# Initialize watchdog
-observer = PollingObserver()
-running = Event()  # flag to control thread lifecycle
 
 # Load search engines and API keys from separate .env files as dictionaries
 search_engines = dotenv_values(DATA_DIR + 'search_engines.env')
@@ -45,9 +40,53 @@ SEARCH_ENGINE_ID = next(iter(search_engines.values())) if search_engines else No
 if not API_KEY or not SEARCH_ENGINE_ID:
     raise ValueError("Either any of the .env files is missing or they are empty!")
 
-# Global variables to track file states
-websites_data = {}
-proxied_domains = []
+
+# Helper functions to load data from files
+def load_websites_data():
+    """Load websites data from websites.xlsx."""
+    try:
+        # Read Excel file with multiple sheets
+        with pd.ExcelFile(DATA_DIR + 'websites.xlsx') as xl:  # context manager ensures file is closed
+            categories = {}
+            # Process each sheet as a category
+            for sheet_name in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sheet_name)
+                # Ensure columns exist and clean data
+                if 'Website Name' in df.columns and 'Website Link' in df.columns:
+                    websites = [
+                        {"title": row['Website Name'], "link": row['Website Link']}
+                        for _, row in df.iterrows()
+                        if pd.notna(row['Website Name']) and pd.notna(row['Website Link'])
+                    ]
+                    categories[sheet_name] = {
+                        "websites": websites,
+                        "max_limit": len(websites)  # dynamic max limit per category
+                    }
+            return {"categories": categories, "default_category": list(categories.keys())[0] if categories else None}
+    
+    except Exception as e:
+        app.logger.error(f"\n\n[ERROR]: Loading websites -> {e}\n----------\n")
+        return {"categories": {}, "default_category": None}
+
+
+def load_proxied_domains_data():
+    """Load proxied domains from proxied_websites.txt."""
+    try:
+        with open(DATA_DIR + 'proxied_websites.txt', 'r') as f:
+            return [line.strip() for line in f if line.strip()]
+    
+    except Exception as e:
+        app.logger.error(f"\n\n[ERROR]: Loading proxied domains -> {e}\n----------\n")
+        return []
+
+
+# Initialize global file states
+websites_data = load_websites_data()
+proxied_domains = load_proxied_domains_data()
+
+# Initialize watchdog
+observer = PollingObserver()
+running = Event()  # flag to control thread lifecycle
 
 
 # Watchdog handler to fetch changes on any file in the data directory
@@ -125,6 +164,15 @@ def stop_watchdog():
         watchdog_thread.join()
 
 
+# Register shutdown hook to ensure watchdog stops on exit
+atexit.register(stop_watchdog)
+
+# Start watchdog in a separate daemon thread
+watchdog_thread = Thread(target=start_watchdog, daemon=True)
+watchdog_thread.start()
+app.config['WATCHDOG_THREAD'] = watchdog_thread  # store thread for shutdown
+
+
 def google_search(query, start, sort_by):
     """Fetch search results from Google Custom Search API."""
     url = "https://www.googleapis.com/customsearch/v1"
@@ -137,6 +185,8 @@ def google_search(query, start, sort_by):
         # "filter": 1,            # removes duplicate results
         # "exactTerms": query,    # forces exact match
     }
+    # app.logger.info(f"\n\n[DEBUG]: API_KEY= {API_KEY}, SEARCH_ENGINE_ID= {SEARCH_ENGINE_ID}\n----------\n")
+    # app.logger.info(f"\n\n[DEBUG]: query={query}, start={start}, sort_by={sort_by}\n----------\n")
     try:
         # Fetch search results (from Google JSON API)
         json_response = requests.get(url, params).json()
@@ -233,23 +283,6 @@ def refine_breadcrumb_trail(segments):
     return " > ".join(formatted_segments)
 
 
-# def fetch_all_results_in_serial(query, sort_by):  # [NOTE]: for testing purposes as fallback
-#     """Fetch search results for a query sequentially using pagination from Google API."""
-#     all_results = []
-#     total_results, total_search_time = 0, 0
-#     next_start = 1
-    
-#     while next_start and len(all_results) < MAX_LIMIT:
-#         results, next_start, total_results, search_time = google_search(query, next_start, sort_by)
-#         # app.logger.info(f"\n\n[DEBUG]: start={next_start}, results_count={len(results)}\n----------\n")
-        
-#         # Add results to our collection
-#         all_results.extend(results)
-#         total_search_time += search_time
-    
-#     return all_results, total_results, round(total_search_time, 2)
-
-
 def fetch_all_results(query, sort_by):
     """Fetch search results for a query dynamically using parallel requests."""
     # First, make a single request to get initial results and total count
@@ -285,44 +318,6 @@ def fetch_all_results(query, sort_by):
         all_results.extend(results_map[start])
     
     return all_results, total_results, round(total_search_time, 2)
-
-
-def load_websites_data():
-    """Load websites data from websites.xlsx."""
-    try:
-        # Read Excel file with multiple sheets
-        with pd.ExcelFile(DATA_DIR + 'websites.xlsx') as xl:  # context manager ensures file is closed
-            categories = {}
-            # Process each sheet as a category
-            for sheet_name in xl.sheet_names:
-                df = pd.read_excel(xl, sheet_name=sheet_name)
-                # Ensure columns exist and clean data
-                if 'Website Name' in df.columns and 'Website Link' in df.columns:
-                    websites = [
-                        {"title": row['Website Name'], "link": row['Website Link']}
-                        for _, row in df.iterrows()
-                        if pd.notna(row['Website Name']) and pd.notna(row['Website Link'])
-                    ]
-                    categories[sheet_name] = {
-                        "websites": websites,
-                        "max_limit": len(websites)  # dynamic max limit per category
-                    }
-            return {"categories": categories, "default_category": list(categories.keys())[0] if categories else None}
-    
-    except Exception as e:
-        app.logger.error(f"\n\n[ERROR]: Loading websites -> {e}\n----------\n")
-        return {"categories": {}, "default_category": None}
-
-
-def load_proxied_domains_data():
-    """Load proxied domains from proxied_websites.txt."""
-    try:
-        with open(DATA_DIR + 'proxied_websites.txt', 'r') as f:
-            return [line.strip() for line in f if line.strip()]
-    
-    except Exception as e:
-        app.logger.error(f"\n\n[ERROR]: Loading proxied domains -> {e}\n----------\n")
-        return []
 
 
 @app.route("/")
@@ -403,15 +398,15 @@ def get_settings_options():
 @app.route('/update_settings', methods=['POST'])
 def update_settings():
     """Update global settings based on user input."""
-    global MAX_QUERIES, MAX_LIMIT, SEARCH_ENGINE_ID, API_KEY
+    global MAX_QUERIES, SEARCH_ENGINE_ID, API_KEY
     try:
         data = request.get_json()
         MAX_QUERIES = int(data['maxQueries'])
-        MAX_LIMIT = MAX_RESULTS * MAX_QUERIES
         
         # Use the selected name directly from the dictionaries or fallback to current values
         SEARCH_ENGINE_ID = search_engines.get(data['searchEngine'], SEARCH_ENGINE_ID)
         API_KEY = api_keys.get(data['apiKey'], API_KEY)
+        # app.logger.info(f"\n\n[DEBUG]: maxQueries={MAX_QUERIES}, searchEngine={SEARCH_ENGINE_ID}, apiKey={API_KEY}\n----------\n")
         return jsonify({'success': True})
     
     except Exception as e:
@@ -420,28 +415,5 @@ def update_settings():
 
 
 if __name__ == "__main__":
-    """Main entry point for the Flask application."""
-    # app.logger.info("[DEBUG]: Starting main block")
-
-    # Initialize global file states
-    websites_data = load_websites_data()
-    proxied_domains = load_proxied_domains_data()
-
-    # Register shutdown hook to ensure watchdog stops on exit
-    atexit.register(stop_watchdog)
-
-    # Start watchdog only in the actual app process, not the reloader parent
-    if environ.get("WERKZEUG_RUN_MAIN") == "true":  # [NOTE]: in production, we might need to change the condition
-        # app.logger.info("[DEBUG]: Starting watchdog in child process")
-        watchdog_thread = Thread(target=start_watchdog)  # non-daemon thread
-        watchdog_thread.start()
-        app.config['WATCHDOG_THREAD'] = watchdog_thread  # store thread for shutdown
-    # else:
-        # app.logger.info("[DEBUG]: Running in reloader parent, skipping watchdog start")
-
-    # Start the Flask app
-    try:
-        # app.logger.info("[DEBUG]: Starting Flask app")
-        app.run(debug=True)
-    finally:
-        stop_watchdog()  # ensure watchdog stops on exit
+    """Main entry point for the Flask application on development server (for testing purposes)."""
+    app.run()
