@@ -16,7 +16,7 @@ jobs:
       - name: Deploy to VPS
         env:
           DISPLAY_NAME: Google Custom Search
-          PORT: 5001
+          PORT: ${{ vars.PORT }}
           BRANCH: ${{ github.ref_name }}
           REPO_URL: https://github.com/${{ github.repository }}.git
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
