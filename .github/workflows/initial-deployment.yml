@@ -4,6 +4,8 @@ on:
     branches:
       - init
       # - v1
+      - infra
+      - init-infra
 jobs:
   deploy:
     runs-on: ubuntu-latest
