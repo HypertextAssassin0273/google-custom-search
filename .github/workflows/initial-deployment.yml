@@ -16,7 +16,7 @@ jobs:
           BRANCH: ${{ github.ref_name }}
           REPO_URL: https://github.com/${{ github.repository }}.git
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_USER: ${{ vars.VPS_USER }}
           VPS_HOST: ${{ vars.VPS_HOST }}
           SCRIPT_PATH: ${{ vars.SCRIPTS_DIR }}/initial-deploy-app.sh
         run: |
