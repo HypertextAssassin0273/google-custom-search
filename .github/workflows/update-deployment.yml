@@ -21,7 +21,7 @@ jobs:
           echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
       - name: Update on VPS
         env:
-          PORT: 5001
+          PORT: ${{ vars.PORT }}
           BRANCH: ${{ github.ref_name }}
           REPO_URL: https://github.com/${{ github.repository }}.git
           COMMIT_SHA: ${{ github.sha }}
