@@ -1,0 +1,30 @@
+name: Initial Deployment & Configuration for Flask App on VPS Server
+on:
+  push:
+    branches:
+      - init
+      # - v1
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retrieve Repository Name
+        run: |
+          REPO_FULL_NAME="${{ github.repository }}"
+          APP_NAME="${REPO_FULL_NAME#*/}" 
+          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
+      - name: Deploy to VPS
+        env:
+          DISPLAY_NAME: Google Custom Search
+          PORT: 5001
+          BRANCH: ${{ github.ref_name }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          SCRIPT_PATH: ${{ vars.SCRIPTS_DIR }}/initial-deploy-app.sh
+        run: |
+          echo "$SSH_PRIVATE_KEY" > ssh_key
+          chmod 600 ssh_key
+          ssh -i ssh_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST \
+            "$SCRIPT_PATH $APP_NAME '$DISPLAY_NAME' $PORT $BRANCH $REPO_URL"

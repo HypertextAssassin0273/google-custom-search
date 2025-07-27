@@ -1,0 +1,36 @@
+name: Deploy Updated Flask App on VPS Server
+on:
+  push:
+    branches:
+      - update
+    #   - 'v1.[0-9]+'           # Matches v1.1, v1.2, etc.
+    #   - 'v[2-9][0-9]*'       # Matches v2, v3, v10, v11, etc.
+    #   - 'v[2-9][0-9]*.[0-9]+' # Matches v2.0, v2.4, v10.1, etc.
+    # branches-ignore:
+    #   - 'v1'                 # Explicitly ignore v1
+    #   - 'v0'                 # Explicitly ignore v0
+    #   - 'v0.[0-9]+'          # Explicitly ignore v0.1, v0.2, etc.
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retrieve Repository Name
+        run: |
+          REPO_FULL_NAME="${{ github.repository }}"
+          APP_NAME="${REPO_FULL_NAME#*/}" 
+          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
+      - name: Update on VPS
+        env:
+          PORT: 5001
+          BRANCH: ${{ github.ref_name }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          COMMIT_SHA: ${{ github.sha }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          SCRIPT_PATH: ${{ vars.SCRIPTS_DIR }}/update-app.sh
+        run: |
+          echo "$SSH_PRIVATE_KEY" > ssh_key
+          chmod 600 ssh_key
+          ssh -i ssh_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST \
+            "$SCRIPT_PATH $APP_NAME $PORT $BRANCH $REPO_URL $COMMIT_SHA"
