@@ -1,4 +1,4 @@
-name: Deploy Updated Flask App on VPS Server (e.g. App2)
+name: Deploy Updated Flask App on VPS Server
 on:
   push:
     branches:
@@ -14,17 +14,21 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
+      - name: Retrieve Repository Name
+        run: |
+          REPO_FULL_NAME="${{ github.repository }}"
+          APP_NAME="${REPO_FULL_NAME#*/}" 
+          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
       - name: Update on VPS
         env:
-          APP_NAME: app2
-          PORT: 5002
+          PORT: 5001
           BRANCH: ${{ github.ref_name }}
           REPO_URL: https://github.com/${{ github.repository }}.git
           COMMIT_SHA: ${{ github.sha }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          SCRIPT_PATH: ${{ secrets.SCRIPTS_DIR }}/update-app.sh
+          VPS_USER: ${{ vars.VPS_USER }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          SCRIPT_PATH: ${{ vars.SCRIPTS_DIR }}/update-app.sh
         run: |
           echo "$SSH_PRIVATE_KEY" > ssh_key
           chmod 600 ssh_key
