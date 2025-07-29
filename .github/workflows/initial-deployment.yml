@@ -8,7 +8,7 @@ on:
       - init-infra
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-latest]
     steps:
       - name: Retrieve Repository Name
         run: |
