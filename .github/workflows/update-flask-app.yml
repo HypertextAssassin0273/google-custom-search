@@ -21,10 +21,8 @@ jobs:
 
       - name: Update App on VPS
         env:
-          PORT: ${{ vars.PORT }}
           BRANCH: ${{ github.ref_name }}
           REPO_URL: https://github.com/${{ github.repository }}.git
-          COMMIT_SHA: ${{ github.sha }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           VPS_USER: ${{ vars.VPS_USER }}
           VPS_HOST: ${{ vars.VPS_HOST }}
@@ -33,4 +31,4 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ssh_key
           chmod 600 ssh_key
           ssh -i ssh_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST \
-            "$SCRIPT_PATH $APP_NAME $PORT $BRANCH $REPO_URL $COMMIT_SHA"
+            "$SCRIPT_PATH $APP_NAME $BRANCH $REPO_URL"
