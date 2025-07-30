@@ -35,3 +35,9 @@ jobs:
           chmod 600 ssh_key
           ssh -i ssh_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST \
             "$SCRIPT_PATH $APP_NAME '$DISPLAY_NAME' '$DESCRIPTION' $PORT $BRANCH $REPO_URL"
+
+      - name: Clean Up
+        if: always()
+        run: |
+          rm -f ssh_key
+          echo "All temporary files have been removed."
