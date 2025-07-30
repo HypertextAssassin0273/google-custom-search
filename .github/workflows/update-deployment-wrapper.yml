@@ -1,11 +1,11 @@
-name: Update Flask App on VPS
+name: Update Flask App on VPS (Wrapper)
 on:
   push:
     branches:
       - update
 
 jobs:
-  update:
+  run:
     uses: ./.github/workflows/update-flask-app.yml
     with:
       runner: ${{ vars.SELF_HOSTED == 'true' && 'self-hosted' || 'ubuntu-latest' }}

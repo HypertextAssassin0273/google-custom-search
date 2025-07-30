@@ -1,4 +1,4 @@
-name: Deploy Flask App on VPS
+name: Deploy Flask App on VPS (Wrapper)
 on:
   push:
     branches:
@@ -7,7 +7,7 @@ on:
       - init-infra
 
 jobs:
-  deploy:
+  run:
     uses: ./.github/workflows/deploy-flask-app.yml
     with:
       runner: ${{ vars.SELF_HOSTED == 'true' && 'self-hosted' || 'ubuntu-latest' }}
