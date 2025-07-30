@@ -1,34 +1,37 @@
-name: Initial Deployment & Configuration for Flask App on VPS Server
+name: Deploy Flask App on VPS
 on:
-  push:
-    branches:
-      - init
-      # - v1
-      - infra
-      - init-infra
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+
 jobs:
   deploy:
-    runs-on: 
-      - self-hosted
-      - ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     steps:
-      - name: Retrieve Repository Name
+      - name: Retrieve App Name
         run: |
           REPO_FULL_NAME="${{ github.repository }}"
-          APP_NAME="${REPO_FULL_NAME#*/}" 
+          APP_NAME="${REPO_FULL_NAME#*/}"
           echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
-      - name: Deploy to VPS
+
+      - name: Deploy App on VPS
         env:
           DISPLAY_NAME: Google Custom Search
+          DESCRIPTION: A powerful tool to search and preview websites with custom configurations
           PORT: ${{ vars.PORT }}
           BRANCH: ${{ github.ref_name }}
           REPO_URL: https://github.com/${{ github.repository }}.git
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           VPS_USER: ${{ vars.VPS_USER }}
           VPS_HOST: ${{ vars.VPS_HOST }}
-          SCRIPT_PATH: ${{ vars.SCRIPTS_DIR }}/initial-deploy-app.sh
+          SCRIPT_PATH: ${{ vars.SCRIPTS_DIR }}/deploy-app.sh
         run: |
           echo "$SSH_PRIVATE_KEY" > ssh_key
           chmod 600 ssh_key
           ssh -i ssh_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST \
-            "$SCRIPT_PATH $APP_NAME '$DISPLAY_NAME' $PORT $BRANCH $REPO_URL"
+            "$SCRIPT_PATH $APP_NAME '$DISPLAY_NAME' '$DESCRIPTION' $PORT $BRANCH $REPO_URL"

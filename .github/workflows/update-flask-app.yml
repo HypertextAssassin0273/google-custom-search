@@ -1,25 +1,25 @@
-name: Deploy Updated Flask App on VPS Server
+name: Update Flask App on VPS
 on:
-  push:
-    branches:
-      - update
-    #   - 'v1.[0-9]+'           # Matches v1.1, v1.2, etc.
-    #   - 'v[2-9][0-9]*'       # Matches v2, v3, v10, v11, etc.
-    #   - 'v[2-9][0-9]*.[0-9]+' # Matches v2.0, v2.4, v10.1, etc.
-    # branches-ignore:
-    #   - 'v1'                 # Explicitly ignore v1
-    #   - 'v0'                 # Explicitly ignore v0
-    #   - 'v0.[0-9]+'          # Explicitly ignore v0.1, v0.2, etc.
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+
 jobs:
   update:
-    runs-on: [self-hosted, ubuntu-latest]
+    runs-on: ${{ inputs.runner }}
     steps:
-      - name: Retrieve Repository Name
+      - name: Retrieve App Name
         run: |
           REPO_FULL_NAME="${{ github.repository }}"
-          APP_NAME="${REPO_FULL_NAME#*/}" 
+          APP_NAME="${REPO_FULL_NAME#*/}"
           echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
-      - name: Update on VPS
+
+      - name: Update App on VPS
         env:
           PORT: ${{ vars.PORT }}
           BRANCH: ${{ github.ref_name }}
