@@ -1,1 +1,34 @@
+# Normalize all text files
 * text=auto eol=lf
+
+# Enforce LF on known text file types
+*.sh     text eol=lf
+*.py     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.html   text eol=lf
+*.js     text eol=lf
+*.css    text eol=lf
+*.json   text eol=lf
+*.txt    text eol=lf
+*.csv    text eol=lf
+*.md     text eol=lf
+
+# Enforce LF on common extensionless config files
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+.env           text eol=lf
+
+# Treat binary files correctly
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.pdf    binary
+*.zip    binary
+*.xlsx   binary
+*.docx   binary
+*.ico    binary
+*.svg    binary
+*.tar    binary
+*.gz     binary
