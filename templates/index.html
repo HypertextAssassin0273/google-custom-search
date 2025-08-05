@@ -127,26 +127,26 @@
 <div class="container-fluid">
     <!-- Left pane: Toggle and content -->
     <div class="left-pane">
-        <div class="d-flex justify-content-between mb-3">
-            <button id="toggleTabButton" class="btn btn-secondary" onclick="toggleTab()">Open Web Previewer</button>
-            <button id="fetchButton" class="btn btn-outline-primary" onclick="fetchUpdates()">Refresh</button>
-        </div>
-        
         <!-- Google Custom Search Tab -->
         <div id="googleSearchTab" class="tab-content active">
-            <h2 class="text-center">Google Custom Search</h2>
-            <div class="input-group mb-3">
-                <input type="text" id="searchQuery" class="form-control" placeholder="Enter search term">
-                <button class="btn btn-primary" onclick="performSearch(1)">Search</button>
+            <div class="d-flex justify-content-between mb-2">
+                <button id="toggleTabButton" class="btn btn-outline-secondary" onclick="toggleTab()">Open Web Previewer</button>
+                <button id="settingsButton" class="btn btn-outline-secondary" onclick="openSettingsModal()">Advanced Settings</button>
             </div>
+
+            <h2 class="text-center">Google Custom Search</h2>
+            <form id="searchForm" class="input-group mb-3">
+                <input type="text" id="searchQuery" class="form-control" placeholder="Enter search term">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
 
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <span id="totalResults"></span>
                 <div class="d-flex align-items-center">
-                    <button id="settingsButton" class="btn btn-outline-secondary me-2" onclick="openSettingsModal()">Advanced Settings</button>
-                    <select id="sortBy" class="form-select w-auto" onchange="performSearch(1)">
-                        <option value="" selected>Sort by: Relevance</option>
-                        <option value="date">Sort by: Date</option>
+                    <label for="sortBy"><b>Sort by:</b></label>
+                    <select id="sortBy" class="form-select w-auto ms-2" onchange="performSearch(1)">
+                        <option value="" selected>Relevance</option>
+                        <option value="date">Date</option>
                     </select>
                 </div>
             </div>
@@ -187,6 +187,11 @@
 
         <!-- Websites Tab -->
         <div id="websitesTab" class="tab-content">
+            <div class="d-flex justify-content-between mb-2">
+                <button id="toggleTabButton" class="btn btn-outline-secondary" onclick="toggleTab()">Open Custom Search</button>
+                <button id="fetchButton" class="btn btn-outline-primary" onclick="loadWebsites()">Fetch</button>
+            </div>
+
             <h2 class="text-center">Websites Preview</h2>
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <span id="websitesTotal"></span>
@@ -194,6 +199,7 @@
             </div>
             <div id="websitesLoading" style="display: none;">Loading...</div>
             <div id="websitesResults"></div>
+
             <div class="pagination-container">
                 <button id="websitesPrevButton" class="btn btn-secondary" onclick="websitesPrevPage()" disabled>Prev</button>
                 <div id="websitesPageNumbers"></div>
@@ -215,11 +221,9 @@
     const resultsPerPage = 10;
 
     // Google Search variables
-    let currentQuery = "",
-        currentPage = 1,
+    let currentPage = 1,
         totalPages = 0,
         totalResults = 0,
-        sortBy = "",
         groupedResults = [],
         preloadedPages = {}, // stores preloaded pages to avoid fetching them again
         proxiedDomains = new Set();
@@ -229,7 +233,8 @@
         currentCategory = "",
         websitesCurrentPage = 1,
         websitesTotalPages = 0,
-        websitesTotalResults = 0;
+        websitesTotalResults = 0,
+        websitesNotLoaded = true;
 
     // Initial settings for reset
     let initialSettings = {};
@@ -246,37 +251,39 @@
     function loadProxiedDomains() {
         fetch('/proxied_domains')
             .then(response => {
-                if (!response.ok) throw new Error(`Failed to load proxied domains: ${response.status}`);
-                return response.json();
+                if (response.ok) return response.json();
+                throw new Error(response.status);
             })
             .then(domains => proxiedDomains = new Set(domains))
-            .catch(error => console.error('Error loading proxied domains:', error));
+            .catch(error => console.error('Failed to load proxied domains:', error));
     }
-    
+
+    // Clear the preview frame
+    function resetPreviewFrame(){
+        const iframe = document.getElementById('previewFrame');
+        iframe.removeAttribute('src');
+        iframe.removeAttribute('srcdoc');
+    }
+
     // Toggle tab and update button text
     function toggleTab() {
         const googleTab = document.getElementById("googleSearchTab");
         const websitesTab = document.getElementById("websitesTab");
-        const toggleButton = document.getElementById("toggleTabButton");
         
         if (googleTab.classList.contains("active")) {
             googleTab.classList.remove("active");
             websitesTab.classList.add("active");
-            toggleButton.textContent = "Open Custom Search";
-            loadWebsites();
         } else {
             websitesTab.classList.remove("active");
             googleTab.classList.add("active");
-            toggleButton.textContent = "Open Web Previewer";
         }
+        resetPreviewFrame();
     }
 
     // Google Search functions
     function performSearch() {
-        currentQuery = document.getElementById("searchQuery").value.trim();
-        sortBy = document.getElementById("sortBy").value;
-
-        if (!currentQuery) {
+        const query = document.getElementById("searchQuery").value.trim();
+        if (!query) {
             alert("Please enter a search term!");
             return;
         }
@@ -284,7 +291,13 @@
         document.getElementById("loading").style.display = "block";
         document.getElementById("searchResults").innerHTML = "";
 
-        fetch(`/search?q=${encodeURIComponent(currentQuery)}&sort_by=${sortBy}`)
+        const params = new URLSearchParams({
+            query,
+            ...initialSettings,  // includes: maxQueries, searchEngine, apiKey
+            sortBy: document.getElementById("sortBy").value
+        });
+
+        fetch(`/search?${params.toString()}`)
             .then(response => response.json())
             .then(({results, total_results, search_time}) => {
                 document.getElementById("loading").style.display = "none";
@@ -299,6 +312,8 @@
                 displayResults(1);
             })
             .catch(error => console.error("Error fetching results:", error));
+
+        resetPreviewFrame(); // always clear the preview frame when a new search is performed
     }
 
     function displayResults(page) {
@@ -435,7 +450,7 @@
         if (currentPage > 1) displayResults(currentPage - 1);
     }
 
-    // Websites functions
+    // Websites functions    
     function loadWebsites() {
         document.getElementById("websitesLoading").style.display = "block";
         fetch("/import_websites")
@@ -461,6 +476,12 @@
                 });
 
                 displayWebsites(1);
+                
+                // Change button text to "Refresh" after first load
+                if (websitesNotLoaded) {
+                    document.getElementById("fetchButton").textContent = "Refresh";
+                    websitesNotLoaded = false;
+                }
             })
             .catch(error => console.error("Error fetching websites:", error));
     }
@@ -533,28 +554,25 @@
     function initSlider() {
         const slider = document.getElementById('pagesSlider');
         const valueSpan = document.getElementById('pagesValue');
-        
+
         window.updateSlider = function() {
             valueSpan.textContent = slider.value;
             const percentage = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
             slider.style.setProperty('--value', `${percentage}%`);
-            updateSaveButtonState(); // Check button state on slider change
         };
-        
+
         slider.addEventListener('input', updateSlider);
-        updateSlider();
     }
 
     function openSettingsModal() {
-        const form = document.getElementById('settingsForm');
-        initialSettings = {
-            maxQueries: form.maxQueries.value,
-            searchEngine: form.searchEngineSelect.value,
-            apiKey: form.apiSelect.value
-        };
         document.getElementById('settingsModal').style.display = 'block';
+    }
+
+    function __resetModalDefaults() {
+        document.getElementById('pagesValue').textContent = initialSettings.maxQueries;
+        document.getElementById('settingsModal').style.display = 'none';
+        document.getElementById('saveButton').disabled = true;
         updateSlider();
-        updateSaveButtonState(); // Ensure button state is correct on open
     }
 
     function closeSettingsModal() {
@@ -562,9 +580,7 @@
         form.maxQueries.value = initialSettings.maxQueries;
         form.searchEngineSelect.value = initialSettings.searchEngine;
         form.apiSelect.value = initialSettings.apiKey;
-        document.getElementById('pagesValue').textContent = initialSettings.maxQueries;
-        document.getElementById('settingsModal').style.display = 'none';
-        updateSlider();
+        __resetModalDefaults();
     }
 
     // Close modal on any click outside
@@ -579,25 +595,20 @@
     // Update Save button state based on form changes
     function updateSaveButtonState() {
         const form = document.getElementById('settingsForm');
-        const saveButton = document.getElementById('saveButton');
-        const currentSettings = {
-            maxQueries: form.maxQueries.value,
-            searchEngine: form.searchEngineSelect.value,
-            apiKey: form.apiSelect.value
-        };
-
         const hasChanges = (
-            currentSettings.maxQueries !== initialSettings.maxQueries ||
-            currentSettings.searchEngine !== initialSettings.searchEngine ||
-            currentSettings.apiKey !== initialSettings.apiKey
+            form.maxQueries.value !== initialSettings.maxQueries ||
+            form.searchEngineSelect.value !== initialSettings.searchEngine ||
+            form.apiSelect.value !== initialSettings.apiKey
         );
-
-        saveButton.disabled = !hasChanges;
+        document.getElementById('saveButton').disabled = !hasChanges;
     }
 
     function loadSettingsOptions() {
         fetch('/get_settings_options')
-            .then(response => response.json())
+            .then(response => {
+                if (response.ok) return response.json();
+                throw new Error(response.status);
+            })
             .then(data => {
                 const searchEngineSelect = document.getElementById('searchEngineSelect');
                 const apiSelect = document.getElementById('apiSelect');
@@ -625,11 +636,6 @@
                     apiSelect.appendChild(option);
                 });
 
-                // Reset pages to default (10) on load
-                document.getElementById('pagesSlider').value = 10;
-                document.getElementById('pagesValue').textContent = '10';
-                updateSlider();
-
                 // Update initialSettings to reflect loaded values
                 initialSettings = {
                     maxQueries: '10',
@@ -639,63 +645,83 @@
 
                 // Add change listeners to form elements
                 const form = document.getElementById('settingsForm');
-                form.addEventListener('change', updateSaveButtonState);
+                form.addEventListener('change', updateSaveButtonState); // For dropdowns
                 form.addEventListener('input', updateSaveButtonState); // For slider
             })
-            .catch(error => console.error('Error loading settings options:', error));
+            .catch(error => console.error('Failed to load settings options:', error));
     }
 
     function saveSettings() {
         const form = document.getElementById('settingsForm');
-        const formData = new FormData(form);
         const settings = {
-            maxQueries: formData.get('maxQueries'),
-            searchEngine: formData.get('searchEngine'),
-            apiKey: formData.get('apiKey')
+            maxQueries: form.maxQueries.value,
+            searchEngine: form.searchEngineSelect.value,
+            apiKey: form.apiSelect.value
         };
 
-        fetch('/update_settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settings)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                console.log('Settings updated:', settings);
-                // Save to localStorage
-                localStorage.setItem('searchSettings', JSON.stringify({
-                    searchEngine: settings.searchEngine,
-                    apiKey: settings.apiKey
-                }));
-                // Update initialSettings to reflect saved values
-                initialSettings = {
-                    maxQueries: settings.maxQueries,
-                    searchEngine: settings.searchEngine,
-                    apiKey: settings.apiKey
-                };
-                closeSettingsModal();
-            } else {
-                alert('Failed to update settings: ' + data.error);
-            }
-        })
-        .catch(error => console.error('Error saving settings:', error));
+        // Save to localStorage
+        localStorage.setItem('searchSettings', JSON.stringify({
+            searchEngine: settings.searchEngine,
+            apiKey: settings.apiKey
+        }));
+        // Update initialSettings to reflect saved values
+        initialSettings = {
+            maxQueries: settings.maxQueries,
+            searchEngine: settings.searchEngine,
+            apiKey: settings.apiKey
+        };
+        __resetModalDefaults();
+        console.log('Settings updated:', settings);
     }
 
-    // Fetch updates manually
-    function fetchUpdates() {
-        console.log('Fetching updates...');
-        loadSettingsOptions();
-        loadProxiedDomains();
-        const websitesTab = document.getElementById('websitesTab');
-        if (websitesTab.classList.contains('active')) loadWebsites();
-    }
+    // function saveSettings() { // [NOTE]: This function is commented out for later redesigning the further settings-update process for /update_settings
+    //     const form = document.getElementById('settingsForm');
+    //     const formData = new FormData(form);
+    //     const settings = {
+    //         maxQueries: formData.get('maxQueries'),
+    //         searchEngine: formData.get('searchEngine'),
+    //         apiKey: formData.get('apiKey')
+    //     };
+
+    //     fetch('/update_settings', {
+    //         method: 'POST',
+    //         headers: { 'Content-Type': 'application/json' },
+    //         body: JSON.stringify(settings)
+    //     })
+    //     .then(response => response.json())
+    //     .then(data => {
+    //         if (data.success) {
+    //             console.log('Settings updated:', settings);
+    //             // Save to localStorage
+    //             localStorage.setItem('searchSettings', JSON.stringify({
+    //                 searchEngine: settings.searchEngine,
+    //                 apiKey: settings.apiKey
+    //             }));
+    //             // Update initialSettings to reflect saved values
+    //             initialSettings = {
+    //                 maxQueries: settings.maxQueries,
+    //                 searchEngine: settings.searchEngine,
+    //                 apiKey: settings.apiKey
+    //             };
+    //             closeSettingsModal();
+    //         } else {
+    //             alert('Failed to update settings: ' + data.error);
+    //         }
+    //     })
+    //     .catch(error => console.error('Error saving settings:', error));
+    // }
 
     // Initialize on DOM load
     document.addEventListener('DOMContentLoaded', () => {
         initSlider();
         loadProxiedDomains();
         loadSettingsOptions();
+
+        document.getElementById('searchForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+            performSearch(1);
+        });
+
     });
 </script>
 </body>

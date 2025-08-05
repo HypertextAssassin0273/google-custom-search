@@ -12,7 +12,7 @@ from os import path
 import atexit, logging
 
 
-MAX_RESULTS, MAX_QUERIES = 10, 10
+MAX_RESULTS = 10  # maximum results per page
 
 # Set directory for data files
 DATA_DIR = path.join(path.dirname(path.abspath(__file__)), 'data', '')  # ensure trailing slash for consistency
@@ -32,12 +32,8 @@ app.logger.setLevel(logging.INFO)
 search_engines = dotenv_values(DATA_DIR + 'search_engines.env')
 api_keys = dotenv_values(DATA_DIR + 'api_keys.env')
 
-# Set defaults to the first entry from each file
-API_KEY = next(iter(api_keys.values())) if api_keys else None
-SEARCH_ENGINE_ID = next(iter(search_engines.values())) if search_engines else None
-
 # Validate that the required environment variables are set
-if not API_KEY or not SEARCH_ENGINE_ID:
+if not api_keys or not search_engines:
     raise ValueError("Either any of the .env files is missing or they are empty!")
 
 
@@ -173,20 +169,19 @@ watchdog_thread.start()
 app.config['WATCHDOG_THREAD'] = watchdog_thread  # store thread for shutdown
 
 
-def google_search(query, start, sort_by):
+def google_search(api_key, search_engine_id, query, start, sort_by):
     """Fetch search results from Google Custom Search API."""
     url = "https://www.googleapis.com/customsearch/v1"
     params = {
-        "key": API_KEY,
-        "cx": SEARCH_ENGINE_ID,
+        "key": api_key,
+        "cx": search_engine_id,
         "q": query,
-        "start": start,
-        "sort": sort_by,          # "" -> byRelevance, "date" -> byDate
+        "start": start,           # 1 -> first page, 11 -> second page, etc
+        "sort": sort_by,          # "" -> by Relevance, "date" -> by Date
         # "filter": 1,            # removes duplicate results
         # "exactTerms": query,    # forces exact match
     }
-    # app.logger.info(f"\n\n[DEBUG]: API_KEY= {API_KEY}, SEARCH_ENGINE_ID= {SEARCH_ENGINE_ID}\n----------\n")
-    # app.logger.info(f"\n\n[DEBUG]: query={query}, start={start}, sort_by={sort_by}\n----------\n")
+    # app.logger.info(f"\n\n[DEBUG]: start={start}\n----------\n")
     try:
         # Fetch search results (from Google JSON API)
         json_response = requests.get(url, params).json()
@@ -213,7 +208,7 @@ def google_search(query, start, sort_by):
         return results, next_start, total_results, search_time
     
     except requests.exceptions.RequestException as e:
-        app.logger.error(f"\n\n[ERROR]: Request -> {e}\n----------\n")
+        app.logger.error(f"\n\n[ERROR]: Search Request -> {e}\n----------\n")
         return default_types()
 
 
@@ -283,15 +278,15 @@ def refine_breadcrumb_trail(segments):
     return " > ".join(formatted_segments)
 
 
-def fetch_all_results(query, sort_by):
+def fetch_all_results(api_key, search_engine_id, query, sort_by, max_queries):
     """Fetch search results for a query dynamically using parallel requests."""
     # First, make a single request to get initial results and total count
-    results, next_start, total_results, search_time = google_search(query, 1, sort_by)
+    results, next_start, total_results, search_time = google_search(api_key, search_engine_id, query, 1, sort_by)
     results_map = {1: results}  # store first page results
     total_search_time = search_time
     
     # Calculate remaining pages to fetch
-    remaining_pages = min(MAX_QUERIES - 1, (total_results - 1) // MAX_RESULTS)
+    remaining_pages = min(max_queries - 1, (total_results - 1) // MAX_RESULTS)
     # app.logger.info(f"\n\n[DEBUG]: remaining_pages={remaining_pages}\n----------\n")
     
     # Fetch remaining pages in parallel
@@ -299,7 +294,7 @@ def fetch_all_results(query, sort_by):
         with concurrent.futures.ThreadPoolExecutor() as executor:
             remaining_indices = [next_start + i * MAX_RESULTS for i in range(remaining_pages)]
             futures = { 
-                executor.submit(google_search, query, start, sort_by): start 
+                executor.submit(google_search, api_key, search_engine_id, query, start, sort_by): start 
                 for start in remaining_indices
             }
             for future in concurrent.futures.as_completed(futures):
@@ -329,14 +324,18 @@ def home():
 @app.route("/search")
 def search():
     """Handles search requests."""
-    query = request.args.get("q", "")
-    sort_by = request.args.get("sort_by", "")
-    # app.logger.info(f"\n\n[DEBUG]: query={query}, sort_by={sort_by}\n----------\n")
+    api_key = api_keys.get(request.args.get("apiKey"))
+    search_engine_id = search_engines.get(request.args.get("searchEngine"))
+    query = request.args.get("query")
+    sort_by = request.args.get("sortBy", "")
+    max_queries = int(request.args.get("maxQueries", 1))
+    # app.logger.info(f"\n\n[DEBUG]: api_key= {api_key}, search_engine_id= {search_engine_id}, "
+    #                 f"query={query}, sort_by={sort_by}, max_queries={max_queries}\n----------\n")
 
-    if not query:
-        return jsonify({"error": "No search query provided"}), 400
+    if not all([api_key, search_engine_id, query]):
+        return jsonify({"error": "Invalid or missing parameters"}), 400
     
-    results, total_results, search_time = fetch_all_results(query, sort_by)
+    results, total_results, search_time = fetch_all_results(api_key, search_engine_id, query, sort_by, max_queries)
     
     return jsonify({
         "results": results,
@@ -395,23 +394,20 @@ def get_settings_options():
     })
 
 
-@app.route('/update_settings', methods=['POST'])
-def update_settings():
-    """Update global settings based on user input."""
-    global MAX_QUERIES, SEARCH_ENGINE_ID, API_KEY
-    try:
-        data = request.get_json()
-        MAX_QUERIES = int(data['maxQueries'])
+# @app.route('/update_settings', methods=['POST'])  # [NOTE]: deprecated for updating search engine and API key, will be redesigned later for updatig entries for add/delete operations in specific files
+# def update_settings():
+#     """Update global settings based on user input."""
+#     global MAX_QUERIES
+#     try:
+#         data = request.get_json()
+#         MAX_QUERIES = int(data['maxQueries'])
         
-        # Use the selected name directly from the dictionaries or fallback to current values
-        SEARCH_ENGINE_ID = search_engines.get(data['searchEngine'], SEARCH_ENGINE_ID)
-        API_KEY = api_keys.get(data['apiKey'], API_KEY)
-        # app.logger.info(f"\n\n[DEBUG]: maxQueries={MAX_QUERIES}, searchEngine={SEARCH_ENGINE_ID}, apiKey={API_KEY}\n----------\n")
-        return jsonify({'success': True})
+#         # app.logger.info(f"\n\n[DEBUG]: maxQueries={MAX_QUERIES}\n----------\n")
+#         return jsonify({'success': True})
     
-    except Exception as e:
-        app.logger.error(f"\n\n[ERROR]: Updating settings -> {e}\n----------\n")
-        return jsonify({'success': False, 'error': str(e)}), 500
+#     except Exception as e:
+#         app.logger.error(f"\n\n[ERROR]: Updating settings -> {e}\n----------\n")
+#         return jsonify({'success': False, 'error': str(e)}), 500
 
 
 if __name__ == "__main__":
