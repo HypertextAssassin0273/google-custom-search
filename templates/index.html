@@ -4,17 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Google Custom Search & Websites Preview</title>
-    
-    <!-- Bootstrap CDN -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+
+    <!-- Speed up connections to all CDNs -->
+    <link rel="dns-prefetch" href="//cdn.calyxtech.net">
+    <link rel="preconnect" href="https://cdn.calyxtech.net" crossorigin>
+
+    <link rel="dns-prefetch" href="//cdn.jsdelivr.net">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 
     <!-- Favicon -->
     <link rel="icon" type="image/png" sizes="32x32" href="https://cdn.calyxtech.net/google-custom-search/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="192x192" href="https://cdn.calyxtech.net/google-custom-search/favicon-192x192.png">
     <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="https://cdn.calyxtech.net/google-custom-search/favicon-180x180.png">
 
+    <!-- Bootstrap CSS -->
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" as="style">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+
     <style>
-        /* Two-pane layout */
+        /* Two-pane Layout */
         .container-fluid {
             display: flex;
             height: 100vh;
@@ -37,7 +45,7 @@
             border: none;
         }
 
-        /* Search result styles */
+        /* Search-result Styles */
         .result-group { margin-bottom: 20px; }
         .result-domain a { font-size: 18px; color: #093; }
         .nested-results { list-style: none; padding-left: 10px; }
@@ -47,15 +55,15 @@
         .result-snippet { font-size: 14px; color: #333; margin-bottom: 0; }
         .result-breadcrumb { font-size: 15px; color: #094; margin-bottom: 0; }
 
-        /* Pagination */
+        /* Pagination Styles */
         .pagination-container { display: flex; justify-content: center; align-items: center; margin-top: 20px; }
         .pagination button { margin: 0 5px; }
 
-        /* Tab styles */
+        /* Tab Styles */
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
-        /* Custom Slider */
+        /* Slider Styles */
         .slider-container {
             display: flex;
             align-items: center;
@@ -120,7 +128,10 @@
             height: auto; /* Fit to content height */
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
-    </style>    
+    </style>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
 </head>
 <body>
 
@@ -213,9 +224,6 @@
         <iframe id="previewFrame" class="iframe-container"></iframe>
     </div>
 </div>
-
-<!-- Bootstrap JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
     const resultsPerPage = 10;
