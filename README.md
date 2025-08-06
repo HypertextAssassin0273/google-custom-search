@@ -35,7 +35,7 @@ API_KEY_N='<your_cs_json_api_key_N>'
 
 **Note:** there is no restriction on naming the environment variables. you can also add spaces in their names, e.g. `'My API Key'='<cs_json_api_key>'`, `'My Search Engine'='<cse_id>'`, etc. the only restriction is that the names should be unique.
 
-### 2.1. Setup the credentials
+#### 2.1. Setup the credentials
 Create a `credentials.env` file in the `data/` directory and set the following variables:
 
 ```bash
