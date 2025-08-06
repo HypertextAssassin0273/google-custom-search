@@ -28,7 +28,7 @@ app = Flask(__name__)
 
 # App configuration
 app.config.update(
-    # SESSION_COOKIE_SECURE=True,   # work only with HTTPS [production only]
+    SESSION_COOKIE_SECURE=True,     # work only with HTTPS [production only]
     SESSION_COOKIE_HTTPONLY=True,   # prevent JavaScript access to session cookie
     SESSION_COOKIE_SAMESITE='Lax',  # prevent CSRF attacks, 'Lax' is default for modern browsers
     PERMANENT_SESSION_LIFETIME=timedelta(minutes=60)  # set session timeout to 1 hour
@@ -64,8 +64,8 @@ search_engines = dotenv_values(DATA_DIR + 'search_engines.env')
 api_keys = dotenv_values(DATA_DIR + 'api_keys.env')
 
 # Validate that the required environment variables are set
-if not api_keys or not search_engines:
-    raise ValueError("Either any of the .env files is missing or they are empty!")
+if not (api_keys and search_engines and CREDENTIALS and len(CREDENTIALS) > 1 and app.secret_key):
+    raise ValueError("Either any of the required .env files or variables are missing or empty!")
 
 # Initialize Flask-Limiter with IP-based rate limiting
 limiter = Limiter(
