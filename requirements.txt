@@ -1,7 +1,8 @@
 flask
-dotenv
+python-dotenv
 requests
 watchdog
 gunicorn
 pandas
 openpyxl
+Flask-Limiter

@@ -1,15 +1,17 @@
-from flask import Flask, request, jsonify, render_template
-import requests, concurrent.futures, pandas as pd
-from dotenv import dotenv_values
-from re import sub, match
-# from json import dumps
-
+from flask import Flask, request, session, redirect, url_for, jsonify, render_template
+import requests, concurrent.futures, pandas as pd, atexit, logging
+from flask_limiter.util import get_remote_address
+from flask_limiter import Limiter
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 from threading import Thread, Event
+from datetime import timedelta
+from dotenv import dotenv_values
+from functools import wraps
 from time import sleep
 from os import path
-import atexit, logging
+from re import sub, match
+# from json import dumps
 
 
 MAX_RESULTS = 10  # maximum results per page
@@ -24,9 +26,38 @@ if not path.exists(DATA_DIR):
 # Initialize Flask app
 app = Flask(__name__)
 
+# App configuration
+app.config.update(
+    # SESSION_COOKIE_SECURE=True,   # work only with HTTPS [production only]
+    SESSION_COOKIE_HTTPONLY=True,   # prevent JavaScript access to session cookie
+    SESSION_COOKIE_SAMESITE='Lax',  # prevent CSRF attacks, 'Lax' is default for modern browsers
+    PERMANENT_SESSION_LIFETIME=timedelta(minutes=60)  # set session timeout to 1 hour
+)
+
+# Refresh the session
+@app.before_request
+def refresh_session_timeout():
+    session.modified = True  # resets the session timeout on each request/activity
+
+# Handle rate limit exceeded error
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return "Too many login attempts. Try again later.", 429
+
+# Handle 404 errors
+@app.errorhandler(404)
+def handle_404(e):
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+    return render_template("404.html"), 404
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 app.logger.setLevel(logging.INFO)
+
+# Load credentials
+CREDENTIALS = dotenv_values(DATA_DIR + "credentials.env")
+app.secret_key = CREDENTIALS.get("FLASK_SECRET_KEY")
 
 # Load search engines and API keys from separate .env files as dictionaries
 search_engines = dotenv_values(DATA_DIR + 'search_engines.env')
@@ -35,6 +66,14 @@ api_keys = dotenv_values(DATA_DIR + 'api_keys.env')
 # Validate that the required environment variables are set
 if not api_keys or not search_engines:
     raise ValueError("Either any of the .env files is missing or they are empty!")
+
+# Initialize Flask-Limiter with IP-based rate limiting
+limiter = Limiter(
+    key_func=get_remote_address,  # gets real IP address of the client
+    app=app,
+    storage_uri="memory://",  # in-memory storage [for 1 gunicorn-worker only]
+    default_limits=[]
+)
 
 
 # Helper functions to load data from files
@@ -315,13 +354,56 @@ def fetch_all_results(api_key, search_engine_id, query, sort_by, max_queries):
     return all_results, total_results, round(total_search_time, 2)
 
 
+def login_required(f):
+    """Decorator to ensure user is logged in before accessing certain routes."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not session.get("logged_in"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return wrapper
+
+
+@app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute")  #  5 attempts per minute per IP
+def login():
+    """Handles user login."""
+    # Redirect to home if already logged in
+    if session.get("logged_in"):
+        return redirect(url_for("home"))
+
+    error = ""
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+
+        if username in CREDENTIALS and CREDENTIALS[username] == password:
+            session.permanent = True  # activates TTL
+            session["logged_in"] = True
+            session["user"] = username
+            return redirect(url_for("home"))
+        else:
+            error = "Invalid username or password."
+
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")  # [NOTE]: not used currently, but can be used for future logout functionality
+def logout():
+    """Handles user logout."""
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/")
+@login_required
 def home():
     """Renders the home page."""
     return render_template("index.html")
 
 
 @app.route("/search")
+@login_required
 def search():
     """Handles search requests."""
     api_key = api_keys.get(request.args.get("apiKey"))
@@ -345,6 +427,7 @@ def search():
 
 
 @app.route("/proxy")
+@login_required
 def proxy():
     """Proxy endpoint to fetch and serve pages to bypass CORS issues."""
     url = request.args.get("url")
@@ -374,18 +457,21 @@ def proxy():
 
 
 @app.route("/import_websites")
+@login_required
 def import_websites():
     """Import websites from a .xlsx file and return categorized data."""
     return jsonify(websites_data)
 
 
 @app.route("/proxied_domains")
+@login_required
 def get_proxied_domains():
     """Fetch proxied websites domain from a text file."""
     return jsonify(proxied_domains)
 
 
 @app.route('/get_settings_options')
+@login_required
 def get_settings_options():
     """Return available search engine and API key names only from .env files."""
     return jsonify({
@@ -394,7 +480,9 @@ def get_settings_options():
     })
 
 
-# @app.route('/update_settings', methods=['POST'])  # [NOTE]: deprecated for updating search engine and API key, will be redesigned later for updatig entries for add/delete operations in specific files
+# [NOTE]: deprecated for updating search engine and API key, will be redesigned later for updatig entries for add/delete operations in specific files
+# @app.route('/update_settings', methods=['POST'])
+# @login_required
 # def update_settings():
 #     """Update global settings based on user input."""
 #     global MAX_QUERIES

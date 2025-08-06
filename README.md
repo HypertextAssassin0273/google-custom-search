@@ -35,6 +35,17 @@ API_KEY_N='<your_cs_json_api_key_N>'
 
 **Note:** there is no restriction on naming the environment variables. you can also add spaces in their names, e.g. `'My API Key'='<cs_json_api_key>'`, `'My Search Engine'='<cse_id>'`, etc. the only restriction is that the names should be unique.
 
+### 2.1. Setup the credentials
+Create a `credentials.env` file in the `data/` directory and set the following variables:
+
+```bash
+FLASK_SECRET_KEY='<your_flask_secret_key>'
+admin='<your_admin_password>'
+employee1='<your_employee1_password>'
+```
+
+**Note:** generate a secure random string for `FLASK_SECRET_KEY` using `python -c "import secrets; print(secrets.token_hex(32))"`. This will be used to secure the session cookies and other sensitive data in the application.
+
 ### 3. Run the script to start the server
 ```bash
 python app.py
