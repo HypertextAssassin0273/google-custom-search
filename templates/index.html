@@ -12,6 +12,9 @@
     <link rel="dns-prefetch" href="//cdn.jsdelivr.net">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 
+    <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+
     <!-- Favicon -->
     <link rel="icon" type="image/png" sizes="32x32" href="https://cdn.calyxtech.net/google-custom-search/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="192x192" href="https://cdn.calyxtech.net/google-custom-search/favicon-192x192.png">
@@ -20,6 +23,9 @@
     <!-- Bootstrap CSS -->
     <link rel="preload" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" as="style">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
         /* Two-pane Layout */
@@ -54,6 +60,33 @@
         .result-title:hover { text-decoration: underline; }
         .result-snippet { font-size: 14px; color: #333; margin-bottom: 0; }
         .result-breadcrumb { font-size: 15px; color: #094; margin-bottom: 0; }
+
+        /* Copy-url-icon Styles */
+        .copy-url-icon {
+            font-size: 14px;
+            color: #666;
+            cursor: pointer;
+            margin-left: 8px;
+            padding: 4px;
+            border-radius: 3px;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .copy-url-icon:hover {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        .copy-url-icon.copied {
+            color: #28a745;
+        }
+
+        /* Search-engine-dropdown Styles */
+        #searchEngineSelect {
+            flex: 1 1 auto;          /* Let it grow/shrink as needed */
+            min-width: 80px;        /* Don’t shrink too much */
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
+        }
 
         /* Pagination Styles */
         .pagination-container { display: flex; justify-content: center; align-items: center; margin-top: 20px; }
@@ -117,14 +150,14 @@
         #settingsModal {
             display: none;
             position: absolute;
-            top: 100px; /* Adjust as needed */
-            left: 20px; /* Position over left pane */
+            top: 15px; /* Adjust as needed */
+            right: 15px; /* Position over left pane */
             background: white;
             padding: 20px;
             border: 1px solid #ccc;
             z-index: 1000;
             width: auto; /* Fit to content width */
-            max-width: 90%; /* Prevent overflow */
+            max-width: calc(100%); /* Prevent overflow */
             height: auto; /* Fit to content height */
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
@@ -152,12 +185,17 @@
             </form>
 
             <div class="d-flex justify-content-between align-items-center mb-2">
+                <label for="searchEngineSelect"><b>Engine:</b></label>
+                <select id="searchEngineSelect" class="form-select ms-1" onchange="changeEngine()"></select>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mb-2">
                 <span id="totalResults"></span>
-                <div class="d-flex align-items-center">
+                <div class="d-flex align-items-center ms-1">
                     <label for="sortBy"><b>Sort by:</b></label>
                     <select id="sortBy" class="form-select w-auto ms-2" onchange="performSearch(1)">
-                        <option value="" selected>Relevance</option>
-                        <option value="date">Date</option>
+                        <option value="" selected>relevance</option>
+                        <option value="date">date</option>
                     </select>
                 </div>
             </div>
@@ -182,10 +220,6 @@
                         <input type="range" id="pagesSlider" name="maxQueries" min="1" max="10" value="10" class="custom-slider">
                         <span id="pagesValue">10</span>
                     </div>
-                </div>
-                <div class="mb-3">
-                    <label for="searchEngineSelect"><b><i>Search Engine:</i></b></label>
-                    <select id="searchEngineSelect" name="searchEngine" class="form-select"></select>
                 </div>
                 <div class="mb-3">
                     <label for="apiSelect"><b><i>API:</i></b></label>
@@ -234,7 +268,8 @@
         totalResults = 0,
         groupedResults = [],
         preloadedPages = {}, // stores preloaded pages to avoid fetching them again
-        proxiedDomains = new Set();
+        proxiedDomains = new Set(),
+        settings = {}; // stores settings options for reset
 
     // Websites Preview variables
     let websitesCategories = {},
@@ -244,8 +279,11 @@
         websitesTotalResults = 0,
         websitesNotLoaded = true;
 
-    // Initial settings for reset
-    let initialSettings = {};
+    // fixed DOM elements
+    const slider = document.getElementById('pagesSlider'),
+          valueSpan = document.getElementById('pagesValue'),
+          apiSelect = document.getElementById('apiSelect'),
+          searchEngineSelect = document.getElementById('searchEngineSelect');
 
     // [DEBUG]: reference variables for debugging
     let R = [], G = [], P = [], W = {}, PP = preloadedPages,
@@ -277,7 +315,6 @@
     function toggleTab() {
         const googleTab = document.getElementById("googleSearchTab");
         const websitesTab = document.getElementById("websitesTab");
-        
         if (googleTab.classList.contains("active")) {
             googleTab.classList.remove("active");
             websitesTab.classList.add("active");
@@ -288,90 +325,99 @@
         resetPreviewFrame();
     }
 
+    // Helper function to add/update key-value pairs in new/existing object in localStorage
+    function updateLocalStorage(key, value, object='searchSettings') {
+        let storedData = JSON.parse(localStorage.getItem(object)) || {};
+        storedData[key] = value;
+        localStorage.setItem(object, JSON.stringify(storedData));
+        console.log(`Updated ${object} in localStorage: ${key} = ${value}`);
+    }
+
     // Google Search functions
     function performSearch() {
         const query = document.getElementById("searchQuery").value.trim();
-        if (!query) {
-            alert("Please enter a search term!");
-            return;
-        }
-
+        if (!query) return;
         document.getElementById("loading").style.display = "block";
         document.getElementById("searchResults").innerHTML = "";
-
-        const params = new URLSearchParams({
-            query,
-            ...initialSettings,  // includes: maxQueries, searchEngine, apiKey
-            sortBy: document.getElementById("sortBy").value
-        });
-
+        const params = new URLSearchParams({query, ...settings, sortBy: document.getElementById("sortBy").value});
         fetch(`/search?${params.toString()}`)
             .then(response => response.json())
             .then(({results, total_results, search_time}) => {
                 document.getElementById("loading").style.display = "none";
                 document.getElementById("totalResults").innerText = `About ${total_results} results (${search_time} seconds)`;
-
-                totalResults = results.length;           // store the actual retrieved total results
-                totalPages = Math.ceil(totalResults / resultsPerPage);
-
+                totalPages = Math.ceil(results.length / resultsPerPage);  // calculate pages w.r.t retrieved total results
                 R = results; // [DEBUG]
                 groupedResults = groupByDomain(results); // group results across all pages & store them globally
                 G = groupedResults; // [DEBUG]
                 displayResults(1);
             })
             .catch(error => console.error("Error fetching results:", error));
-
         resetPreviewFrame(); // always clear the preview frame when a new search is performed
+    }
+
+    function changeEngine() {
+        const searchEngine = searchEngineSelect.value;
+        settings.searchEngine = searchEngine; // update settings
+        updateLocalStorage('searchEngine', searchEngine); // save to localStorage
+        performSearch(1); // re-perform search with the new engine
     }
 
     function displayResults(page) {
         currentPage = page;
         const startIndex = (page - 1) * resultsPerPage;
         const endIndex = startIndex + resultsPerPage;
-
         let resultsDiv = document.getElementById("searchResults");
         resultsDiv.innerHTML = "";
-
-        if (!groupedResults.length) {
-            resultsDiv.innerHTML = "<p class='text-danger'>No results found.</p>";
-            return;
-        }
-
+        if (!groupedResults.length) { resultsDiv.innerHTML = "<p class='text-danger'>No results found.</p>"; return; }
         let paginatedResults = getPaginatedGroupedResults(startIndex, endIndex);
         P = paginatedResults; // [DEBUG]
-
         paginatedResults.forEach(({ domain, domainLink, nestedItems }) => {
             let domainDiv = document.createElement("div");
             domainDiv.className = "result-group";
             domainDiv.innerHTML = `<p class="result-domain"><strong><a href="${domainLink}" target="_blank">${domain}</a></strong></p>`;
-
             let nestedResults = document.createElement("ul");
             nestedResults.className = "nested-results";
-
             nestedItems.forEach(({ link, title, breadcrumb_trail, snippet }) => {
                 let listItem = document.createElement("li");
                 listItem.innerHTML = `
                     <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
+                    <i class="fas fa-copy copy-url-icon" onclick="copyToClipboard('${link}', this)" title="Copy URL"></i>
                     <p class="result-breadcrumb">${breadcrumb_trail}</p>
                     <p class="result-snippet">${snippet}</p>
                 `;
                 nestedResults.appendChild(listItem);
             });
-
             domainDiv.appendChild(nestedResults);
             resultsDiv.appendChild(domainDiv);
-
-            if (proxiedDomains.has(domain)) {
-                nestedItems.forEach(({ link }) => preloadPage(link));
-            }
+            if (proxiedDomains.has(domain)) { nestedItems.forEach(({ link }) => preloadPage(link)); }
         });
-
         updatePagination();
+    }
+
+    function copyToClipboard(url, iconElement) {
+        navigator.clipboard.writeText(url).then(() => {
+            // Visual feedback (change font awesome class)
+            iconElement.className = 'fas fa-check copy-url-icon copied';
+            iconElement.title = 'Copied!';
+            // Reset after 2 seconds
+            setTimeout(() => {
+                iconElement.className = 'fas fa-copy copy-url-icon';
+                iconElement.title = 'Copy URL';
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy URL:', err);
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = url;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+        });
     }
 
     function groupByDomain(results) {
         let grouped = [], domainMap = {};
-
         results.forEach(item => {
             let domain = item.display_link;
             if (!domainMap[domain]) {
@@ -380,13 +426,11 @@
             }
             domainMap[domain].nestedItems.push(item);
         });
-
         return grouped;
     }
 
     function getPaginatedGroupedResults(startIndex, endIndex) {
         let currentIndex = 0, resultMap = new Map();
-
         for (const { domain, domainLink, nestedItems } of groupedResults) {
             for (const item of nestedItems) {
                 if (currentIndex >= startIndex && currentIndex < endIndex) {
@@ -400,7 +444,6 @@
             }
             if (currentIndex >= endIndex) break;
         }
-
         return Array.from(resultMap.values());
     }
 
@@ -437,7 +480,6 @@
     function updatePagination() {
         let pageNumbersDiv = document.getElementById("pageNumbers");
         pageNumbersDiv.innerHTML = "";
-
         for (let i = 1; i <= totalPages; i++) {
             let btn = document.createElement("button");
             btn.innerText = i;
@@ -445,7 +487,6 @@
             btn.onclick = () => displayResults(i);
             pageNumbersDiv.appendChild(btn);
         }
-
         document.getElementById("prevButton").disabled = currentPage === 1;
         document.getElementById("nextButton").disabled = currentPage === totalPages;
     }
@@ -469,7 +510,6 @@
                     document.getElementById("websitesResults").innerHTML = "<p class='text-danger'>Error loading websites.</p>";
                     return;
                 }
-
                 websitesCategories = data.categories;
                 W = websitesCategories; // [DEBUG]
                 currentCategory = data.default_category;
@@ -482,11 +522,8 @@
                     if (category === currentCategory) option.selected = true;
                     categorySelect.appendChild(option);
                 });
-
                 displayWebsites(1);
-                
-                // Change button text to "Refresh" after first load
-                if (websitesNotLoaded) {
+                if (websitesNotLoaded) { // change button text to "Refresh" after first load
                     document.getElementById("fetchButton").textContent = "Refresh";
                     websitesNotLoaded = false;
                 }
@@ -501,19 +538,12 @@
         const endIndex = startIndex + resultsPerPage;
         const categoryData = websitesCategories[currentCategory];
         const websites = categoryData.websites;
-
         document.getElementById("websitesTotal").innerText = `Total: ${categoryData.max_limit} websites`;
         websitesTotalResults = categoryData.max_limit;
         websitesTotalPages = Math.ceil(websitesTotalResults / resultsPerPage);
-
         let resultsDiv = document.getElementById("websitesResults");
         resultsDiv.innerHTML = "";
-
-        if (!websites.length) {
-            resultsDiv.innerHTML = "<p class='text-danger'>No websites found.</p>";
-            return;
-        }
-
+        if (!websites.length) { resultsDiv.innerHTML = "<p class='text-danger'>No websites found.</p>"; return; }
         const paginatedWebsites = websites.slice(startIndex, endIndex);
         paginatedWebsites.forEach(({ title, link }) => {
             let itemDiv = document.createElement("div");
@@ -522,7 +552,6 @@
                 <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
             `;
             resultsDiv.appendChild(itemDiv);
-            
             try { // [NOTE]: needs testing, right now 'websites.xlsx' contains invalid URLs
                 const domain = new URL(link).hostname;
                 if (proxiedDomains.has(domain)) preloadPage(link);
@@ -530,14 +559,12 @@
                 console.error(`Error processing URL "${link}":`, error);
             }
         });
-
         updateWebsitesPagination();
     }
 
     function updateWebsitesPagination() {
         let pageNumbersDiv = document.getElementById("websitesPageNumbers");
         pageNumbersDiv.innerHTML = "";
-
         for (let i = 1; i <= websitesTotalPages; i++) {
             let btn = document.createElement("button");
             btn.innerText = i;
@@ -545,7 +572,6 @@
             btn.onclick = () => displayWebsites(i);
             pageNumbersDiv.appendChild(btn);
         }
-
         document.getElementById("websitesPrevButton").disabled = websitesCurrentPage === 1;
         document.getElementById("websitesNextButton").disabled = websitesCurrentPage === websitesTotalPages;
     }
@@ -559,17 +585,10 @@
     }
 
     // Slider and Modal functions
-    function initSlider() {
-        const slider = document.getElementById('pagesSlider');
-        const valueSpan = document.getElementById('pagesValue');
-
-        window.updateSlider = function() {
-            valueSpan.textContent = slider.value;
-            const percentage = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
-            slider.style.setProperty('--value', `${percentage}%`);
-        };
-
-        slider.addEventListener('input', updateSlider);
+    function updateSlider() {
+        valueSpan.textContent = slider.value;
+        const percentage = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
+        slider.style.setProperty('--value', `${percentage}%`);
     }
 
     function openSettingsModal() {
@@ -577,18 +596,15 @@
     }
 
     function __resetModalDefaults() {
-        document.getElementById('pagesValue').textContent = initialSettings.maxQueries;
         document.getElementById('settingsModal').style.display = 'none';
         document.getElementById('saveButton').disabled = true;
-        updateSlider();
     }
 
     function closeSettingsModal() {
-        const form = document.getElementById('settingsForm');
-        form.maxQueries.value = initialSettings.maxQueries;
-        form.searchEngineSelect.value = initialSettings.searchEngine;
-        form.apiSelect.value = initialSettings.apiKey;
+        slider.value = settings.maxQueries;
+        apiSelect.value = settings.apiKey;
         __resetModalDefaults();
+        updateSlider();
     }
 
     // Close modal on any click outside
@@ -602,11 +618,9 @@
 
     // Update Save button state based on form changes
     function updateSaveButtonState() {
-        const form = document.getElementById('settingsForm');
         const hasChanges = (
-            form.maxQueries.value !== initialSettings.maxQueries ||
-            form.searchEngineSelect.value !== initialSettings.searchEngine ||
-            form.apiSelect.value !== initialSettings.apiKey
+            slider.value !== settings.maxQueries ||
+            apiSelect.value !== settings.apiKey
         );
         document.getElementById('saveButton').disabled = !hasChanges;
     }
@@ -618,24 +632,18 @@
                 throw new Error(response.status);
             })
             .then(data => {
-                const searchEngineSelect = document.getElementById('searchEngineSelect');
-                const apiSelect = document.getElementById('apiSelect');
-                searchEngineSelect.innerHTML = '';
+                // Clear existing options
                 apiSelect.innerHTML = '';
-
+                searchEngineSelect.innerHTML = '';
                 // Load saved settings from localStorage
-                const savedSettings = JSON.parse(localStorage.getItem('searchSettings')) || {};
-                const savedSearchEngine = savedSettings.searchEngine || data.searchEngines[0];
-                const savedApiKey = savedSettings.apiKey || data.apiKeys[0];
-
-                data.searchEngines.forEach(name => {
-                    const option = document.createElement('option');
-                    option.value = name;
-                    option.text = name;
-                    if (name === savedSearchEngine) option.selected = true;
-                    searchEngineSelect.appendChild(option);
-                });
-
+                const savedSettings = JSON.parse(localStorage.getItem('searchSettings')) || {},
+                      savedMaxQueries = savedSettings.maxQueries || '10',
+                      savedApiKey = savedSettings.apiKey || data.apiKeys[0],
+                      savedSearchEngine = savedSettings.searchEngine || data.searchEngines[0];
+                // Initialize slider
+                slider.value = savedMaxQueries;
+                updateSlider();
+                // Populate dropdowns
                 data.apiKeys.forEach(name => {
                     const option = document.createElement('option');
                     option.value = name;
@@ -643,14 +651,19 @@
                     if (name === savedApiKey) option.selected = true;
                     apiSelect.appendChild(option);
                 });
-
-                // Update initialSettings to reflect loaded values
-                initialSettings = {
-                    maxQueries: '10',
-                    searchEngine: savedSearchEngine,
-                    apiKey: savedApiKey
+                data.searchEngines.forEach(name => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.text = name;
+                    if (name === savedSearchEngine) option.selected = true;
+                    searchEngineSelect.appendChild(option);
+                });
+                // Update settings to reflect loaded values
+                settings = {
+                    maxQueries: savedMaxQueries,
+                    apiKey: savedApiKey,
+                    searchEngine: savedSearchEngine
                 };
-
                 // Add change listeners to form elements
                 const form = document.getElementById('settingsForm');
                 form.addEventListener('change', updateSaveButtonState); // For dropdowns
@@ -660,29 +673,19 @@
     }
 
     function saveSettings() {
-        const form = document.getElementById('settingsForm');
-        const settings = {
-            maxQueries: form.maxQueries.value,
-            searchEngine: form.searchEngineSelect.value,
-            apiKey: form.apiSelect.value
-        };
-
+        const maxQueries = slider.value,
+              apiKey = apiSelect.value;
         // Save to localStorage
-        localStorage.setItem('searchSettings', JSON.stringify({
-            searchEngine: settings.searchEngine,
-            apiKey: settings.apiKey
-        }));
-        // Update initialSettings to reflect saved values
-        initialSettings = {
-            maxQueries: settings.maxQueries,
-            searchEngine: settings.searchEngine,
-            apiKey: settings.apiKey
-        };
+        updateLocalStorage('maxQueries', maxQueries);
+        updateLocalStorage('apiKey', apiKey);
+        // Update settings to reflect saved values
+        settings.maxQueries = maxQueries;
+        settings.apiKey = apiKey;
         __resetModalDefaults();
         console.log('Settings updated:', settings);
     }
 
-    // function saveSettings() { // [NOTE]: This function is commented out for later redesigning the further settings-update process for /update_settings
+    // function saveSettings() { // [NOTE]: This function is commented-out/preserved for later redesigning the further settings-update process for /update_settings
     //     const form = document.getElementById('settingsForm');
     //     const formData = new FormData(form);
     //     const settings = {
@@ -690,7 +693,6 @@
     //         searchEngine: formData.get('searchEngine'),
     //         apiKey: formData.get('apiKey')
     //     };
-
     //     fetch('/update_settings', {
     //         method: 'POST',
     //         headers: { 'Content-Type': 'application/json' },
@@ -705,8 +707,8 @@
     //                 searchEngine: settings.searchEngine,
     //                 apiKey: settings.apiKey
     //             }));
-    //             // Update initialSettings to reflect saved values
-    //             initialSettings = {
+    //             // Update settings to reflect saved values
+    //             settings = {
     //                 maxQueries: settings.maxQueries,
     //                 searchEngine: settings.searchEngine,
     //                 apiKey: settings.apiKey
@@ -720,17 +722,10 @@
     // }
 
     // Initialize on DOM load
-    document.addEventListener('DOMContentLoaded', () => {
-        initSlider();
-        loadProxiedDomains();
-        loadSettingsOptions();
-
-        document.getElementById('searchForm').addEventListener('submit', function(event) {
-            event.preventDefault();
-            performSearch(1);
-        });
-
-    });
+    loadProxiedDomains();
+    loadSettingsOptions();
+    slider.addEventListener('input', updateSlider);
+    document.getElementById('searchForm').addEventListener('submit', function(event) { event.preventDefault(); performSearch(1); });
 </script>
 </body>
 </html>

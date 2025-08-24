@@ -42,6 +42,8 @@ Create a `credentials.env` file in the `data/` directory and set the following v
 FLASK_SECRET_KEY='<your_flask_secret_key>'
 admin='<your_admin_password>'
 employee1='<your_employee1_password>'
+...
+employeeN='<your_employeeN_password>'
 ```
 
 **Note:** generate a secure random string for `FLASK_SECRET_KEY` using `python -c "import secrets; print(secrets.token_hex(32))"`. This will be used to secure the session cookies and other sensitive data in the application.
@@ -70,7 +72,7 @@ This application also provides a **website previewer** tab, which allows you to 
 
 You can add websites under different categories in the `websites.xlsx` file. The application will automatically load the websites from the excel file and display them accordingly in the previewer tab.
 
-**Note:** make sure to add `websites.xlsx` file in `data\` directory and ensure that the websites are in the correct format and accessible. otherwise, it will not work correctly.
+**Note:** make sure to upload `websites.xlsx` file and ensure that the websites are in the correct format and accessible. otherwise, it will not work correctly.
 
 ### 2. Proxy Support (requests user-agent)
 If you want to optimize **page-search** results of a specific website, you can add that website's **domain** name in `proxied_websites.txt` file. The application will automatically fetch and cache the proxied content for all the pages of that website.
@@ -78,8 +80,3 @@ If you want to optimize **page-search** results of a specific website, you can a
 You can use this feature to fetch some annoying websites faster, cache their content, prevent them from being blocked (by CORS, strict CSP, etc.), and view their content super efficiently.
 
 **Note:** this feature works for both **website previewer** and **search results** tabs.
-
-### 3. Watchdog Support
-The application also provides a **watchdog** support, which monitors the changes in **data files** and automatically reloads the changes in the application.
-
-**Note:** currently, it monitors both `.env` files along with `websites.xlsx` and `proxied_websites.txt` files.
