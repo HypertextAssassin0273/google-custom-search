@@ -41,11 +41,17 @@
             overflow-y: auto;
             border-right: 1px solid #ccc;
             position: relative; /* For modal positioning */
+            /* Fix touchpad scrolling issues */
+            overscroll-behavior: contain;
+            scroll-behavior: smooth;
+            /* Force hardware acceleration */
+            transform: translateZ(0);
+            -webkit-transform: translateZ(0);
+            will-change: scroll-position;
         }
         .right-pane {
             width: 50%;
             padding: 15px;
-            overflow-y: auto;
         }
         .iframe-container {
             width: 100%;
@@ -62,6 +68,7 @@
         .result-title:hover { text-decoration: underline; }
         .result-snippet { font-size: 14px; color: #333; margin-bottom: 0; }
         .result-breadcrumb { font-size: 15px; color: #094; margin-bottom: 0; }
+        .result-number { font-size: 18px; font-weight: bold; color: #666; margin-right: 4px; }
 
         /* Copy-url-icon Styles */
         .copy-url-icon {
@@ -73,13 +80,8 @@
             border-radius: 3px;
             transition: background-color 0.2s, color 0.2s;
         }
-        .copy-url-icon:hover {
-            background-color: #f0f0f0;
-            color: #333;
-        }
-        .copy-url-icon.copied {
-            color: #28a745;
-        }
+        .copy-url-icon:hover { background-color: #f0f0f0; color: #333; }
+        .copy-url-icon.copied { color: #28a745; }
 
         /* Search-engine-dropdown Styles */
         #searchEngineSelect {
@@ -262,8 +264,6 @@
 </div>
 
 <script>
-    const resultsPerPage = 10;
-
     // Google Search variables
     let currentPage = 1,
         totalPages = 0,
@@ -274,6 +274,7 @@
         settings = {}; // stores settings options for reset
 
     // Websites Preview variables
+    const resultsPerPage = 10; // for websites tab only [need to add better pagination technique for it]
     let websitesCategories = {},
         currentCategory = "",
         websitesCurrentPage = 1,
@@ -347,10 +348,10 @@
             .then(({results, total_results, search_time}) => {
                 document.getElementById("loading").style.display = "none";
                 document.getElementById("totalResults").innerText = `About ${total_results} results (${search_time} seconds)`;
-                totalPages = Math.ceil(results.length / resultsPerPage);  // calculate pages w.r.t retrieved total results
                 R = results; // [DEBUG]
                 groupedResults = groupByDomain(results); // group results across all pages & store them globally
                 G = groupedResults; // [DEBUG]
+                totalPages = groupedResults.length; // Each domain gets its own page
                 displayResults(1);
             })
             .catch(error => console.error("Error fetching results:", error));
@@ -366,33 +367,29 @@
 
     function displayResults(page) {
         currentPage = page;
-        const startIndex = (page - 1) * resultsPerPage;
-        const endIndex = startIndex + resultsPerPage;
         let resultsDiv = document.getElementById("searchResults");
         resultsDiv.innerHTML = "";
         if (!groupedResults.length) { resultsDiv.innerHTML = "<p class='text-danger'>No results found.</p>"; return; }
-        let paginatedResults = getPaginatedGroupedResults(startIndex, endIndex);
-        P = paginatedResults; // [DEBUG]
-        paginatedResults.forEach(({ domain, domainLink, nestedItems }) => {
-            let domainDiv = document.createElement("div");
-            domainDiv.className = "result-group";
-            domainDiv.innerHTML = `<p class="result-domain"><strong><a href="${domainLink}" target="_blank">${domain}</a></strong></p>`;
-            let nestedResults = document.createElement("ul");
-            nestedResults.className = "nested-results";
-            nestedItems.forEach(({ link, title, breadcrumb_trail, snippet }) => {
-                let listItem = document.createElement("li");
-                listItem.innerHTML = `
-                    <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
-                    <i class="fas fa-copy copy-url-icon" onclick="copyToClipboard('${link}', this)" title="Copy URL"></i>
-                    <p class="result-breadcrumb">${breadcrumb_trail}</p>
-                    <p class="result-snippet">${snippet}</p>
-                `;
-                nestedResults.appendChild(listItem);
-            });
-            domainDiv.appendChild(nestedResults);
-            resultsDiv.appendChild(domainDiv);
-            if (proxiedDomains.has(domain)) { nestedItems.forEach(({ link }) => preloadPage(link)); }
+        const { domain, domainLink, nestedItems } = groupedResults[page - 1]; // show one domain per page
+        let domainDiv = document.createElement("div");
+        domainDiv.className = "result-group";
+        domainDiv.innerHTML = `<p class="result-domain"><strong><a href="${domainLink}" target="_blank">${domain}</a>  (${nestedItems.length})</strong></p>`;
+        let nestedResults = document.createElement("ul");
+        nestedResults.className = "nested-results";
+        nestedItems.forEach(({ link, title, breadcrumb_trail, snippet }, index) => {
+            let listItem = document.createElement("li");
+            listItem.innerHTML = `
+                <span class="result-number">${index + 1})</span>
+                <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
+                <i class="fas fa-copy copy-url-icon" onclick="copyToClipboard('${link}', this)" title="Copy URL"></i>
+                <p class="result-breadcrumb">${breadcrumb_trail}</p>
+                <p class="result-snippet">${snippet}</p>
+            `;
+            nestedResults.appendChild(listItem);
         });
+        domainDiv.appendChild(nestedResults);
+        resultsDiv.appendChild(domainDiv);
+        if (proxiedDomains.has(domain)) { nestedItems.forEach(({ link }) => preloadPage(link)); }
         updatePagination();
     }
 
@@ -434,24 +431,6 @@
             domainMap[domain].nestedItems.push(item);
         });
         return grouped;
-    }
-
-    function getPaginatedGroupedResults(startIndex, endIndex) {
-        let currentIndex = 0, resultMap = new Map();
-        for (const { domain, domainLink, nestedItems } of groupedResults) {
-            for (const item of nestedItems) {
-                if (currentIndex >= startIndex && currentIndex < endIndex) {
-                    if (!resultMap.has(domain)) {
-                        resultMap.set(domain, { domain, domainLink, nestedItems: [] });
-                    }
-                    resultMap.get(domain).nestedItems.push(item);
-                }
-                currentIndex++;
-                if (currentIndex >= endIndex) break;
-            }
-            if (currentIndex >= endIndex) break;
-        }
-        return Array.from(resultMap.values());
     }
 
     function preloadPage(url) {
