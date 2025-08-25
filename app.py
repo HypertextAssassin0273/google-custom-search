@@ -4,13 +4,11 @@ from search import fetch_all_results
 from flask import request, session, redirect, url_for, jsonify, render_template
 from dotenv import dotenv_values
 from datetime import timedelta
-from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from requests.adapters import HTTPAdapter
 from functools import wraps
 from re import match, sub
-import requests, logging
+import requests, logging, uuid
 
 
 # Load credentials
@@ -33,18 +31,16 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(weeks=1)  # set session timeout to 1 week duration
 )
 
-# Apply reverse proxy fix
-app.wsgi_app = ProxyFix(
-    app.wsgi_app,
-    x_for=1,    # trust X-Forwarded-For
-    x_proto=1,  # trust X-Forwarded-Proto
-    x_host=1,   # trust X-Forwarded-Host
-    x_port=1    # trust X-Forwarded-Port
-)
+# Create a custom key function for session-based rate limiting
+def get_rate_limit_key():
+    """Generate a unique key for rate limiting based on session ID."""
+    if 'rate_limit_id' not in session:
+        session['rate_limit_id'] = str(uuid.uuid4())
+    return f"session:{session['rate_limit_id']}"
 
-# Initialize Flask-Limiter (with IP-based rate limiting)
+# Initialize Flask-Limiter (with session-based rate limiting)
 limiter = Limiter(
-    key_func=get_remote_address,  # gets real IP address of the client
+    key_func=get_rate_limit_key,
     app=app,
     storage_uri="redis://127.0.0.1:6379"  # use redis-server to enforce consistent limits across multiple workers
 )
@@ -86,23 +82,23 @@ def login():
     return render_template("login.html")
 
 @app.route("/login", methods=["POST"])
-@limiter.limit("10 per hour", deduct_when=lambda response: response.status_code == 200)
+@limiter.limit("10 per hour")  # limit login attempts to 10 per hour per session
 def login_submit():
     """Handles login form submission."""
     username = request.form.get("username")
     if username in CREDENTIALS and CREDENTIALS[username] == request.form.get("password"):
         try:  # reset rate limit on successful login, [NOTE]: https://github.com/alisaifee/flask-limiter/issues/189
             storage = limiter.storage.storage
-            pattern = f'LIMITS:LIMITER/{request.remote_addr}/*'
-            # app.logger.info(f"\n\n[DEBUG]: remote_address={request.remote_addr},\n---\n"
-            #                 f"redis_keys={list(storage.scan_iter(pattern))}\n----------\n")
+            pattern = f'LIMITS:LIMITER/session:{session["rate_limit_id"]}/*'
+            # app.logger.info(f"\n\n[DEBUG]: redis_keys={list(storage.scan_iter(pattern))}\n----------\n")
             for key in storage.scan_iter(pattern):
                 storage.delete(key)
         except Exception as e:
-            app.logger.error(f"\n\n[ERROR]: resetting rate limit for IP {request.remote_addr}: {e}\n----------\n")
+            app.logger.error(f"\n\n[ERROR]: resetting rate limit for session {session['rate_limit_id']}: {e}\n----------\n")
+        session.pop('rate_limit_id', None)
         session.permanent = True  # persist even when browser restarts
         session["logged_in"] = True
-        session["user"] = username  # [NOTE]: kept for audit purposes, can be used later for user-specific settings
+        session["user"] = username
         return redirect(url_for("home"))
     return jsonify({"error": "Invalid username or password."})
 
