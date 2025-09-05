@@ -31,7 +31,7 @@ def google_search(api_key, search_engine_id, query, start, sort_by):
         return results, next_start, total_results, search_time
     except Exception as e:
         app.logger.error(f"\n\n[ERROR]: search -> {e}\n----------\n")
-        return [], 0, 0, 0
+        return [], 0, -1, 0
 
 def extract_results(json_response):
     """Extracts search results from API response."""
@@ -80,14 +80,15 @@ def fetch_all_results(api_key, search_engine_id, query, sort_by, max_queries):
     """Fetch search results for a query dynamically using parallel requests."""
     # First, make a single request to get initial results and total count
     results, next_start, total_results, search_time = google_search(api_key, search_engine_id, query, 1, sort_by)
+    if total_results < 1: return [], total_results, 0  # early exit on: no results found or an error occurred
     results_map = {1: results}  # store first page results
     total_search_time = search_time
     remaining_pages = min(max_queries - 1, (total_results - 1) // MAX_RESULTS)  # calculate remaining pages to fetch
     # app.logger.info(f"\n\n[DEBUG]: remaining_pages={remaining_pages}\n----------\n")
-    if remaining_pages and next_start:  # fetch remaining pages in parallel
+    if remaining_pages and next_start:  # fetch remaining pages in parallel (if any)
         with ThreadPoolExecutor() as executor:
             remaining_indices = [next_start + i * MAX_RESULTS for i in range(remaining_pages)]
-            futures = { 
+            futures = {
                 executor.submit(google_search, api_key, search_engine_id, query, start, sort_by): start 
                 for start in remaining_indices
             }

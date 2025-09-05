@@ -208,9 +208,9 @@
             <div id="searchResults"></div>
 
             <div class="pagination-container">
-                <button id="prevButton" class="btn btn-secondary" onclick="prevPage()" disabled>Prev</button>
+                <button id="prevButton" class="btn btn-secondary" disabled>Prev</button>
                 <div id="pageNumbers"></div>
-                <button id="nextButton" class="btn btn-secondary" onclick="nextPage()" disabled>Next</button>
+                <button id="nextButton" class="btn btn-secondary" disabled>Next</button>
             </div>
         </div>
 
@@ -250,9 +250,9 @@
             <div id="websitesResults"></div>
 
             <div class="pagination-container">
-                <button id="websitesPrevButton" class="btn btn-secondary" onclick="websitesPrevPage()" disabled>Prev</button>
+                <button id="websitesPrevButton" class="btn btn-secondary" disabled>Prev</button>
                 <div id="websitesPageNumbers"></div>
-                <button id="websitesNextButton" class="btn btn-secondary" onclick="websitesNextPage()" disabled>Next</button>
+                <button id="websitesNextButton" class="btn btn-secondary" disabled>Next</button>
             </div>
         </div>
     </div>
@@ -274,9 +274,7 @@
         settings = {}; // stores settings options for reset
 
     // Websites Preview variables
-    const resultsPerPage = 10; // for websites tab only [need to add better pagination technique for it]
     let websitesCategories = {},
-        currentCategory = "",
         websitesCurrentPage = 1,
         websitesTotalPages = 0,
         websitesTotalResults = 0,
@@ -284,13 +282,35 @@
 
     // fixed DOM elements
     const slider = document.getElementById('pagesSlider'),
-          valueSpan = document.getElementById('pagesValue'),
+          sliderValue = document.getElementById('pagesValue'),
           apiSelect = document.getElementById('apiSelect'),
-          searchEngineSelect = document.getElementById('searchEngineSelect');
+          engineSelect = document.getElementById('searchEngineSelect'),
+          resultsDiv = document.getElementById("searchResults"),
+          webResultsDiv = document.getElementById("websitesResults"),
+          loading = document.getElementById("loading"),
+          websitesLoading = document.getElementById("websitesLoading"),
+          msgSpan = document.getElementById("totalResults"),
+          websitesMsgSpan = document.getElementById("websitesTotal"),
+          iframe = document.getElementById("previewFrame"),
+          searchQuery = document.getElementById("searchQuery"),
+          sortBy = document.getElementById("sortBy"),
+          searchTab = document.getElementById("googleSearchTab"),
+          websitesTab = document.getElementById("websitesTab"),
+          pageNumbers = document.getElementById("pageNumbers"),
+          websitesPageNumbers = document.getElementById("websitesPageNumbers"),
+          prevButton = document.getElementById("prevButton"),
+          nextButton = document.getElementById("nextButton"),
+          websitesPrevButton = document.getElementById("websitesPrevButton"),
+          websitesNextButton = document.getElementById("websitesNextButton"),
+          categorySelect = document.getElementById("categorySelect"),
+          fetchButton = document.getElementById("fetchButton"),
+          settingsForm = document.getElementById('settingsForm'),
+          settingsModal = document.getElementById('settingsModal'),
+          settingsButton = document.getElementById('settingsButton'),
+          saveButton = document.getElementById('saveButton');
 
     // [DEBUG]: reference variables for debugging
-    let R = [], G = [], P = [], W = {}, PP = preloadedPages,
-        I = document.getElementById("previewFrame");
+    let R = [], G = [], P = [], W = {}, PP = preloadedPages;
     
     Object.defineProperty(window, "PD", { // [DEBUG]: ensures PD points to the latest proxiedDomains
         get: () => proxiedDomains
@@ -309,21 +329,18 @@
 
     // Clear the preview frame
     function resetPreviewFrame(){
-        const iframe = document.getElementById('previewFrame');
         iframe.removeAttribute('src');
         iframe.removeAttribute('srcdoc');
     }
 
     // Toggle tab and update button text
     function toggleTab() {
-        const googleTab = document.getElementById("googleSearchTab");
-        const websitesTab = document.getElementById("websitesTab");
-        if (googleTab.classList.contains("active")) {
-            googleTab.classList.remove("active");
+        if (searchTab.classList.contains("active")) {
+            searchTab.classList.remove("active");
             websitesTab.classList.add("active");
         } else {
             websitesTab.classList.remove("active");
-            googleTab.classList.add("active");
+            searchTab.classList.add("active");
         }
         resetPreviewFrame();
     }
@@ -336,18 +353,26 @@
         console.log(`Updated ${object} in localStorage: ${key} = ${value}`);
     }
 
-    // Google Search functions
+    // Search Tab functions
+    function changeEngine() {
+        const searchEngine = engineSelect.value;
+        settings.searchEngine = searchEngine; // update settings
+        updateLocalStorage('searchEngine', searchEngine); // save to localStorage
+        performSearch(1); // re-perform search with the new engine
+    }
+
     function performSearch() {
-        const query = document.getElementById("searchQuery").value.trim();
+        const query = searchQuery.value.trim();
         if (!query) return;
-        document.getElementById("loading").style.display = "block";
-        document.getElementById("searchResults").innerHTML = "";
-        const params = new URLSearchParams({query, ...settings, sortBy: document.getElementById("sortBy").value});
+        loading.style.display = "block";
+        const params = new URLSearchParams({query, ...settings, sortBy: sortBy.value});
         fetch(`/search?${params.toString()}`)
             .then(response => response.json())
             .then(({results, total_results, search_time}) => {
-                document.getElementById("loading").style.display = "none";
-                document.getElementById("totalResults").innerText = `About ${total_results} results (${search_time} seconds)`;
+                loading.style.display = "none";
+                if (total_results === -1) msgSpan.innerHTML = `<p class='text-danger'>Quota exceeded for current API.</p>`;
+                else if (!results.length) msgSpan.innerHTML = `<p class='text-danger'>No results found.</p>`;
+                else msgSpan.innerHTML = `About ${total_results} results (${search_time} seconds)`;
                 R = results; // [DEBUG]
                 groupedResults = groupByDomain(results); // group results across all pages & store them globally
                 G = groupedResults; // [DEBUG]
@@ -358,26 +383,35 @@
         resetPreviewFrame(); // always clear the preview frame when a new search is performed
     }
 
-    function changeEngine() {
-        const searchEngine = searchEngineSelect.value;
-        settings.searchEngine = searchEngine; // update settings
-        updateLocalStorage('searchEngine', searchEngine); // save to localStorage
-        performSearch(1); // re-perform search with the new engine
+    function groupByDomain(results) {
+        let grouped = [], domainMap = {};
+        results.forEach(item => {
+            const domain = item.display_link;
+            if (!domainMap[domain]) {
+                domainMap[domain] = { domain, domainLink: new URL(item.link).origin, nestedItems: [] };
+                grouped.push(domainMap[domain]);
+            }
+            domainMap[domain].nestedItems.push(item);
+        });
+        return grouped;
     }
 
     function displayResults(page) {
         currentPage = page;
-        let resultsDiv = document.getElementById("searchResults");
         resultsDiv.innerHTML = "";
-        if (!groupedResults.length) { resultsDiv.innerHTML = "<p class='text-danger'>No results found.</p>"; return; }
-        const { domain, domainLink, nestedItems } = groupedResults[page - 1]; // show one domain per page
-        let domainDiv = document.createElement("div");
+        if (totalPages) renderDomainResults();
+        updatePagination(pageNumbers, page, totalPages, prevButton, nextButton, displayResults);
+    }
+
+    function renderDomainResults() {
+        const { domain, domainLink, nestedItems } = groupedResults[currentPage - 1]; // show one domain per page
+        const domainDiv = document.createElement("div");
         domainDiv.className = "result-group";
         domainDiv.innerHTML = `<p class="result-domain"><strong><a href="${domainLink}" target="_blank">${domain}</a>  (${nestedItems.length})</strong></p>`;
-        let nestedResults = document.createElement("ul");
+        const nestedResults = document.createElement("ul");
         nestedResults.className = "nested-results";
         nestedItems.forEach(({ link, title, breadcrumb_trail, snippet }, index) => {
-            let listItem = document.createElement("li");
+            const listItem = document.createElement("li");
             listItem.innerHTML = `
                 <span class="result-number">${index + 1})</span>
                 <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
@@ -390,9 +424,22 @@
         domainDiv.appendChild(nestedResults);
         resultsDiv.appendChild(domainDiv);
         if (proxiedDomains.has(domain)) { nestedItems.forEach(({ link }) => preloadPage(link)); }
-        updatePagination();
     }
 
+    function updatePagination(pageNumbersDiv, current, max, prevBtn, nextBtn, displayFunc) {
+        pageNumbersDiv.innerHTML = "";
+        for (let i = 1; i <= max; i++) {
+            const btn = document.createElement("button");
+            btn.innerText = i;
+            btn.className = `btn ${i === current ? "btn-primary" : "btn-outline-secondary"} mx-1`;
+            btn.onclick = () => displayFunc(i);
+            pageNumbersDiv.appendChild(btn);
+        }
+        prevBtn.disabled = current === 1;
+        nextBtn.disabled = !max || current === max;
+    }
+
+    // Clipboard utility functions
     function copyToClipboard(url, iconElement) {
         if (navigator.clipboard && navigator.clipboard.writeText) {  // check if clipboard api is available
             navigator.clipboard.writeText(url).then(() => {
@@ -420,19 +467,66 @@
         }, 2000);
     }
 
-    function groupByDomain(results) {
-        let grouped = [], domainMap = {};
-        results.forEach(item => {
-            let domain = item.display_link;
-            if (!domainMap[domain]) {
-                domainMap[domain] = { domain, domainLink: new URL(item.link).origin, nestedItems: [] };
-                grouped.push(domainMap[domain]);
-            }
-            domainMap[domain].nestedItems.push(item);
-        });
-        return grouped;
+    // Websites Tab functions
+    function loadWebsites() {
+        websitesLoading.style.display = "block";
+        fetch("/import_websites")
+            .then(response => response.json())
+            .then(data => {
+                websitesLoading.style.display = "none";
+                if (data.error) { webResultsDiv.innerHTML = "<p class='text-danger'>Error loading websites.</p>";  return; }
+                websitesCategories = data.categories;
+                W = websitesCategories; // [DEBUG]
+                categorySelect.innerHTML = "";
+                Object.keys(websitesCategories).forEach(
+                    category => categorySelect.appendChild(createSelectOption(category, data.default_category))
+                );
+                displayWebsites(1);
+                if (websitesNotLoaded) { // change button text to "Refresh" after first load
+                    fetchButton.textContent = "Refresh";
+                    websitesNotLoaded = false;
+                }
+            })
+            .catch(error => console.error("Error fetching websites:", error));
     }
 
+    function displayWebsites(page) {
+        websitesCurrentPage = page;
+        const { websites, max_limit } = websitesCategories[categorySelect.value];
+        websitesTotalResults = max_limit;
+        // Calculate optimal pagination
+        let itemsPerPage;
+        if (max_limit <= 100) {
+            itemsPerPage = Math.min(10, max_limit);
+            websitesTotalPages = Math.ceil(max_limit / itemsPerPage);
+        } else {
+            const scaleFactor = max_limit <= 50 ? 0.8 : max_limit > 500 ? 1 + Math.log10(max_limit / 500) * 0.2 : 1;
+            itemsPerPage = Math.ceil((max_limit / 10) * scaleFactor);
+            websitesTotalPages = Math.min(Math.ceil(max_limit / itemsPerPage), 10);
+        }
+        // Render results (for current page)
+        const startIndex = (page - 1) * itemsPerPage;
+        websitesMsgSpan.innerText = `Total: ${max_limit} websites (${itemsPerPage} per page)`;
+        webResultsDiv.innerHTML = "";
+        if (!websites.length) { webResultsDiv.innerHTML = "<p class='text-danger'>No websites found.</p>"; return; }
+        websites.slice(startIndex, startIndex + itemsPerPage).forEach(({ title, link }, index) => {
+            const itemDiv = document.createElement("div");
+            itemDiv.className = "result-group";
+            itemDiv.innerHTML = `
+                <span class="result-number">${startIndex + index + 1})</span>
+                <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
+            `;
+            webResultsDiv.appendChild(itemDiv);
+            try { // [NOTE]: needs testing, right now 'websites.xlsx' contains invalid URLs
+                if (proxiedDomains.has(new URL(link).hostname)) preloadPage(link);
+            } catch (error) {
+                console.error(`Error processing URL "${link}":`, error);
+            }
+        });
+        updatePagination(websitesPageNumbers, page, websitesTotalPages, websitesPrevButton, websitesNextButton, displayWebsites);
+    }
+
+    // Page load functions
     function preloadPage(url) {
         if (!preloadedPages[url]) {
             fetch(`/proxy?url=${encodeURIComponent(url)}`)
@@ -446,144 +540,29 @@
     }
 
     function loadPage(url) {
-        const iframe = document.getElementById("previewFrame");
         if (preloadedPages[url]) {
             iframe.srcdoc = preloadedPages[url];
         } else {
-            console.log("Page not preloaded. Fetching from server..."); // [TEMP]
+            console.log("Page not preloaded. Fetching from server...");
             iframe.removeAttribute("srcdoc"); // remove srcdoc to ensure src takes effect
             iframe.src = url;
         }
     }
 
-    function reloadPage(url) { // [DEBUG]
-        console.log("Page not preloaded. Fetching from server...");
-        const iframe = document.getElementById("previewFrame");
-        iframe.removeAttribute("srcdoc"); // remove srcdoc to ensure src takes effect
-        iframe.src = url;
-    }
-
-    function updatePagination() {
-        let pageNumbersDiv = document.getElementById("pageNumbers");
-        pageNumbersDiv.innerHTML = "";
-        for (let i = 1; i <= totalPages; i++) {
-            let btn = document.createElement("button");
-            btn.innerText = i;
-            btn.className = `btn ${i === currentPage ? "btn-primary" : "btn-outline-secondary"} mx-1`;
-            btn.onclick = () => displayResults(i);
-            pageNumbersDiv.appendChild(btn);
-        }
-        document.getElementById("prevButton").disabled = currentPage === 1;
-        document.getElementById("nextButton").disabled = currentPage === totalPages;
-    }
-
-    function nextPage() {
-        if (currentPage < totalPages) displayResults(currentPage + 1);
-    }
-
-    function prevPage() {
-        if (currentPage > 1) displayResults(currentPage - 1);
-    }
-
-    // Websites functions    
-    function loadWebsites() {
-        document.getElementById("websitesLoading").style.display = "block";
-        fetch("/import_websites")
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById("websitesLoading").style.display = "none";
-                if (data.error) {
-                    document.getElementById("websitesResults").innerHTML = "<p class='text-danger'>Error loading websites.</p>";
-                    return;
-                }
-                websitesCategories = data.categories;
-                W = websitesCategories; // [DEBUG]
-                currentCategory = data.default_category;
-                const categorySelect = document.getElementById("categorySelect");
-                categorySelect.innerHTML = "";
-                Object.keys(websitesCategories).forEach(category => {
-                    const option = document.createElement("option");
-                    option.value = category;
-                    option.text = category;
-                    if (category === currentCategory) option.selected = true;
-                    categorySelect.appendChild(option);
-                });
-                displayWebsites(1);
-                if (websitesNotLoaded) { // change button text to "Refresh" after first load
-                    document.getElementById("fetchButton").textContent = "Refresh";
-                    websitesNotLoaded = false;
-                }
-            })
-            .catch(error => console.error("Error fetching websites:", error));
-    }
-
-    function displayWebsites(page) {
-        websitesCurrentPage = page;
-        currentCategory = document.getElementById("categorySelect").value;
-        const startIndex = (page - 1) * resultsPerPage;
-        const endIndex = startIndex + resultsPerPage;
-        const categoryData = websitesCategories[currentCategory];
-        const websites = categoryData.websites;
-        document.getElementById("websitesTotal").innerText = `Total: ${categoryData.max_limit} websites`;
-        websitesTotalResults = categoryData.max_limit;
-        websitesTotalPages = Math.ceil(websitesTotalResults / resultsPerPage);
-        let resultsDiv = document.getElementById("websitesResults");
-        resultsDiv.innerHTML = "";
-        if (!websites.length) { resultsDiv.innerHTML = "<p class='text-danger'>No websites found.</p>"; return; }
-        const paginatedWebsites = websites.slice(startIndex, endIndex);
-        paginatedWebsites.forEach(({ title, link }) => {
-            let itemDiv = document.createElement("div");
-            itemDiv.className = "result-group";
-            itemDiv.innerHTML = `
-                <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
-            `;
-            resultsDiv.appendChild(itemDiv);
-            try { // [NOTE]: needs testing, right now 'websites.xlsx' contains invalid URLs
-                const domain = new URL(link).hostname;
-                if (proxiedDomains.has(domain)) preloadPage(link);
-            } catch (error) {
-                console.error(`Error processing URL "${link}":`, error);
-            }
-        });
-        updateWebsitesPagination();
-    }
-
-    function updateWebsitesPagination() {
-        let pageNumbersDiv = document.getElementById("websitesPageNumbers");
-        pageNumbersDiv.innerHTML = "";
-        for (let i = 1; i <= websitesTotalPages; i++) {
-            let btn = document.createElement("button");
-            btn.innerText = i;
-            btn.className = `btn ${i === websitesCurrentPage ? "btn-primary" : "btn-outline-secondary"} mx-1`;
-            btn.onclick = () => displayWebsites(i);
-            pageNumbersDiv.appendChild(btn);
-        }
-        document.getElementById("websitesPrevButton").disabled = websitesCurrentPage === 1;
-        document.getElementById("websitesNextButton").disabled = websitesCurrentPage === websitesTotalPages;
-    }
-
-    function websitesNextPage() {
-        if (websitesCurrentPage < websitesTotalPages) displayWebsites(websitesCurrentPage + 1);
-    }
-
-    function websitesPrevPage() {
-        if (websitesCurrentPage > 1) displayWebsites(websitesCurrentPage - 1);
-    }
-
-    // Slider and Modal functions
+    // Slider and Modal functions (for settings)
     function updateSlider() {
-        valueSpan.textContent = slider.value;
+        sliderValue.textContent = slider.value;
         const percentage = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
         slider.style.setProperty('--value', `${percentage}%`);
     }
 
     function openSettingsModal() {
-        document.getElementById('settingsModal').style.display = 'block';
+        settingsModal.style.display = 'block';
     }
 
     function __resetModalDefaults() {
-        document.getElementById('settingsModal').style.display = 'none';
-        document.getElementById('saveButton').disabled = true;
+        settingsModal.style.display = 'none';
+        saveButton.disabled = true;
     }
 
     function closeSettingsModal() {
@@ -593,24 +572,15 @@
         updateSlider();
     }
 
-    // Close modal on any click outside
-    document.addEventListener('click', (event) => {
-        const modal = document.getElementById('settingsModal');
-        const settingsButton = document.getElementById('settingsButton');
-        if (modal.style.display === 'block' && !modal.contains(event.target) && !settingsButton.contains(event.target)) {
-            closeSettingsModal(); // Cancel changes and close
-        }
-    });
-
-    // Update Save button state based on form changes
-    function updateSaveButtonState() {
+    function updateSaveButtonState() { // update save button state based on form changes
         const hasChanges = (
             slider.value !== settings.maxQueries ||
             apiSelect.value !== settings.apiKey
         );
-        document.getElementById('saveButton').disabled = !hasChanges;
+        saveButton.disabled = !hasChanges;
     }
 
+    // Load and Save operations for settings
     function loadSettingsOptions() {
         fetch('/get_settings_options')
             .then(response => {
@@ -618,9 +588,6 @@
                 throw new Error(response.status);
             })
             .then(data => {
-                // Clear existing options
-                apiSelect.innerHTML = '';
-                searchEngineSelect.innerHTML = '';
                 // Load saved settings from localStorage
                 const savedSettings = JSON.parse(localStorage.getItem('searchSettings')) || {},
                       savedMaxQueries = savedSettings.maxQueries || '10',
@@ -629,31 +596,17 @@
                 // Initialize slider
                 slider.value = savedMaxQueries;
                 updateSlider();
+                // Clear existing dropdowns
+                apiSelect.innerHTML = '';
+                engineSelect.innerHTML = '';
                 // Populate dropdowns
-                data.apiKeys.forEach(name => {
-                    const option = document.createElement('option');
-                    option.value = name;
-                    option.text = name;
-                    if (name === savedApiKey) option.selected = true;
-                    apiSelect.appendChild(option);
-                });
-                data.searchEngines.forEach(name => {
-                    const option = document.createElement('option');
-                    option.value = name;
-                    option.text = name;
-                    if (name === savedSearchEngine) option.selected = true;
-                    searchEngineSelect.appendChild(option);
-                });
+                data.apiKeys.forEach(name => apiSelect.appendChild(createSelectOption(name, savedApiKey)));
+                data.searchEngines.forEach(name => engineSelect.appendChild(createSelectOption(name, savedSearchEngine)));
                 // Update settings to reflect loaded values
-                settings = {
-                    maxQueries: savedMaxQueries,
-                    apiKey: savedApiKey,
-                    searchEngine: savedSearchEngine
-                };
+                settings = {maxQueries: savedMaxQueries, apiKey: savedApiKey, searchEngine: savedSearchEngine};
                 // Add change listeners to form elements
-                const form = document.getElementById('settingsForm');
-                form.addEventListener('change', updateSaveButtonState); // For dropdowns
-                form.addEventListener('input', updateSaveButtonState); // For slider
+                settingsForm.addEventListener('change', updateSaveButtonState); // For dropdowns
+                settingsForm.addEventListener('input', updateSaveButtonState); // For slider
             })
             .catch(error => console.error('Failed to load settings options:', error));
     }
@@ -672,8 +625,7 @@
     }
 
     // function saveSettings() { // [NOTE]: This function is commented-out/preserved for later redesigning the further settings-update process for /update_settings
-    //     const form = document.getElementById('settingsForm');
-    //     const formData = new FormData(form);
+    //     const formData = new FormData(settingsForm);
     //     const settings = {
     //         maxQueries: formData.get('maxQueries'),
     //         searchEngine: formData.get('searchEngine'),
@@ -707,11 +659,32 @@
     //     .catch(error => console.error('Error saving settings:', error));
     // }
 
+    // Create simple select-dropdown options
+    function createSelectOption(name, selected) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.text = name;
+        if (name === selected) option.selected = true;
+        return option;
+    }
+
     // Initialize on DOM load
     loadProxiedDomains();
     loadSettingsOptions();
     slider.addEventListener('input', updateSlider);
-    document.getElementById('searchForm').addEventListener('submit', function(event) { event.preventDefault(); performSearch(1); });
+    prevButton.addEventListener('click', () => displayResults(currentPage - 1));
+    nextButton.addEventListener('click', () => displayResults(currentPage + 1));
+    websitesPrevButton.addEventListener('click', () => displayWebsites(websitesCurrentPage - 1));
+    websitesNextButton.addEventListener('click', () => displayWebsites(websitesCurrentPage + 1));
+    document.getElementById('searchForm').addEventListener('submit', function(event) {
+        event.preventDefault(); performSearch(1);
+    });
+    document.addEventListener('click', (event) => { // close modal on any click outside
+        if (settingsModal.style.display === 'block' &&
+            !settingsModal.contains(event.target) &&
+            !settingsButton.contains(event.target))
+                closeSettingsModal(); // cancel changes and close
+    });
 </script>
 </body>
 </html>
