@@ -219,10 +219,10 @@
             <h3>Advanced Settings</h3>
             <form id="settingsForm">
                 <div class="mb-3">
-                    <label for="pagesSlider"><b><i>Pages (1-10):</i></b></label>
+                    <label for="pagesSlider"><b><i>Results (10-100):</i></b></label>
                     <div class="slider-container">
                         <input type="range" id="pagesSlider" name="maxQueries" min="1" max="10" value="10" class="custom-slider">
-                        <span id="pagesValue">10</span>
+                        <span id="pagesValue">100</span>
                     </div>
                 </div>
                 <div class="mb-3">
@@ -551,7 +551,7 @@
 
     // Slider and Modal functions (for settings)
     function updateSlider() {
-        sliderValue.textContent = slider.value;
+        sliderValue.textContent = slider.value * 10; // display value as 10-100
         const percentage = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
         slider.style.setProperty('--value', `${percentage}%`);
     }
