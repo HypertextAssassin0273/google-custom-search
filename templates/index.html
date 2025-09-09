@@ -238,7 +238,12 @@
         <div id="websitesTab" class="tab-content">
             <div class="d-flex justify-content-between mb-2">
                 <button id="toggleTabButton" class="btn btn-outline-secondary" onclick="toggleTab()">Open Custom Search</button>
-                <button id="fetchButton" class="btn btn-outline-primary" onclick="loadWebsites()">Fetch</button>
+                <div>
+                    <input type="file" id="importInput" accept=".xlsx" style="display: none;" onchange="importWebsites()">
+                    <label for="importInput" class="btn btn-outline-warning me-2" title="Works only for 'websites.xlsx' file (max 16MB)">Import</label>
+                    <button id="exportBtn" class="btn btn-outline-success me-2" onclick="handleExport()">Export</button>
+                    <button id="fetchButton" class="btn btn-outline-primary" onclick="loadWebsites()">Fetch</button>
+                </div>
             </div>
 
             <h2 class="text-center">Websites Preview</h2>
@@ -278,7 +283,8 @@
         websitesCurrentPage = 1,
         websitesTotalPages = 0,
         websitesTotalResults = 0,
-        websitesNotLoaded = true;
+        websitesNotLoaded = true,
+        exportCooldown = false;
 
     // fixed DOM elements
     const slider = document.getElementById('pagesSlider'),
@@ -307,7 +313,9 @@
           settingsForm = document.getElementById('settingsForm'),
           settingsModal = document.getElementById('settingsModal'),
           settingsButton = document.getElementById('settingsButton'),
-          saveButton = document.getElementById('saveButton');
+          saveButton = document.getElementById('saveButton'),
+          importInput = document.getElementById('importInput'),
+          exportBtn = document.getElementById('exportBtn');
 
     // [DEBUG]: reference variables for debugging
     let R = [], G = [], P = [], W = {}, PP = preloadedPages;
@@ -318,7 +326,7 @@
 
     // Load proxied websites domain from 'proxied_domains.txt'
     function loadProxiedDomains() {
-        fetch('/proxied_domains')
+        fetch('/get_proxied_domains')
             .then(response => {
                 if (response.ok) return response.json();
                 throw new Error(response.status);
@@ -439,38 +447,10 @@
         nextBtn.disabled = !max || current === max;
     }
 
-    // Clipboard utility functions
-    function copyToClipboard(url, iconElement) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {  // check if clipboard api is available
-            navigator.clipboard.writeText(url).then(() => {
-                showCopySuccess(iconElement); return;
-            }).catch(err => console.error('Failed to copy URL:', err));
-        }
-        // Fallback on failure
-        const textArea = document.createElement('textarea');
-        textArea.value = url;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-999999px';
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-        showCopySuccess(iconElement);
-    }
-
-    function showCopySuccess(iconElement) {
-        iconElement.className = 'fas fa-check copy-url-icon copied';
-        iconElement.title = 'Copied!';
-        setTimeout(() => {
-            iconElement.className = 'fas fa-copy copy-url-icon';
-            iconElement.title = 'Copy URL';
-        }, 2000);
-    }
-
     // Websites Tab functions
     function loadWebsites() {
         websitesLoading.style.display = "block";
-        fetch("/import_websites")
+        fetch("/get_websites")
             .then(response => response.json())
             .then(data => {
                 websitesLoading.style.display = "none";
@@ -515,6 +495,7 @@
             itemDiv.innerHTML = `
                 <span class="result-number">${startIndex + index + 1})</span>
                 <a href="#" class="result-title" onclick="loadPage('${link}')">${title}</a>
+                <i class="fas fa-copy copy-url-icon" onclick="copyToClipboard('${link}', this)" title="Copy URL"></i>
             `;
             webResultsDiv.appendChild(itemDiv);
             try { // [NOTE]: needs testing, right now 'websites.xlsx' contains invalid URLs
@@ -524,6 +505,56 @@
             }
         });
         updatePagination(websitesPageNumbers, page, websitesTotalPages, websitesPrevButton, websitesNextButton, displayWebsites);
+    }
+
+    function importWebsites() {
+        const file = importInput.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        fetch('/import_websites', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) throw new Error(data.error);
+            if (data.success) {
+                loadWebsites(); // refresh the websites list
+                fetchButton.disabled = exportBtn.disabled = false;
+                alert('Websites imported successfully.');
+            }
+        })
+        .catch(error => alert('Import failed: ' + error.message))
+        .finally(() => importInput.value = ''); // reset the input
+    }
+
+    function handleExport(countdown = 10) {
+        if (exportCooldown) return;
+        exportCooldown = true;
+        exportBtn.classList.add('disabled');
+        window.location.href = '/export_websites';
+        const timer = setInterval(() => {
+            if (countdown) {
+                exportBtn.textContent = `Wait (${countdown--})`;
+            } else {
+                clearInterval(timer);
+                exportBtn.textContent = 'Export';
+                exportBtn.classList.remove('disabled');
+                exportCooldown = false;
+            }
+        }, 1000);
+    }
+
+    function checkWebsitesFile() {
+        fetch('/export_websites', { method: 'HEAD' })
+            .then(response => {
+                if (!response.ok){
+                    fetchButton.disabled = exportBtn.disabled = true;
+                    websitesMsgSpan.innerHTML = "<span class='text-danger'>No websites.xlsx file found. Please import a file first.</span>";
+                }
+            })
+            .catch(error => console.error('Error checking websites file:', error));
     }
 
     // Page load functions
@@ -547,6 +578,34 @@
             iframe.removeAttribute("srcdoc"); // remove srcdoc to ensure src takes effect
             iframe.src = url;
         }
+    }
+
+    // Clipboard utility functions
+    function copyToClipboard(url, iconElement) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {  // check if clipboard api is available
+            navigator.clipboard.writeText(url).then(() => {
+                showCopySuccess(iconElement); return;
+            }).catch(err => console.error('Failed to copy URL:', err));
+        }
+        // Fallback on failure
+        const textArea = document.createElement('textarea');
+        textArea.value = url;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showCopySuccess(iconElement);
+    }
+
+    function showCopySuccess(iconElement) {
+        iconElement.className = 'fas fa-check copy-url-icon copied';
+        iconElement.title = 'Copied!';
+        setTimeout(() => {
+            iconElement.className = 'fas fa-copy copy-url-icon';
+            iconElement.title = 'Copy URL';
+        }, 2000);
     }
 
     // Slider and Modal functions (for settings)
@@ -669,6 +728,7 @@
     }
 
     // Initialize on DOM load
+    checkWebsitesFile();
     loadProxiedDomains();
     loadSettingsOptions();
     slider.addEventListener('input', updateSlider);
