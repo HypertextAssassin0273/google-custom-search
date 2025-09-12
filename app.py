@@ -1,7 +1,7 @@
 from shared import app, MAX_QUERIES
 from utils import load_websites_data, load_proxied_domains, clear_rate_limits, signal_workers
 from search import fetch_all_results
-from flask import request, session, redirect, url_for, jsonify, render_template, send_file
+from flask import request, session, redirect, url_for, render_template, send_file
 from werkzeug.exceptions import RequestEntityTooLarge
 from dotenv import dotenv_values
 from datetime import timedelta
@@ -28,6 +28,10 @@ api_keys = dotenv_values(DATA_DIR + 'api_keys.env')
 # Validate the required environment variables
 if not (api_keys and search_engines and credentials and len(credentials) > 1 and app.secret_key):
     raise Exception("Either any of the required .env files or variables are missing or empty!")
+
+# Load other data files
+websites_data = load_websites_data(DATA_DIR + 'websites.xlsx')
+proxied_domains = load_proxied_domains(DATA_DIR + 'proxied_websites.txt')
 
 # App configuration (for security and session management)
 app.config.update(
@@ -68,7 +72,7 @@ proxy_session.mount("https://", adapter)
 # Error response handlers
 @app.errorhandler(429)
 def handle_429(e):
-    return jsonify({"error": "Too many attempts. Try again later."}), 429
+    return {"error": "Too many attempts. Try again later."}, 429
 
 @app.errorhandler(404)
 def handle_404(e):
@@ -76,11 +80,18 @@ def handle_404(e):
         return render_template("404.html")
     return redirect(url_for("login"))
 
-# Load other data files
-websites_data = load_websites_data(DATA_DIR + 'websites.xlsx')
-proxied_domains = load_proxied_domains(DATA_DIR + 'proxied_websites.txt')
+# Protect routes with required login guard
+def login_required(f):
+    """Decorator to ensure user is logged in before accessing certain routes."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if session.get("logged_in"):
+            return f(*args, **kwargs)
+        return redirect(url_for("login"))
+    return wrapper
 
 
+# Flask routes/endpoints
 @app.route("/login")
 def login():
     """Renders the login page."""
@@ -99,16 +110,7 @@ def login_submit():
         session["logged_in"] = True
         session["user"] = username
         return redirect(url_for("home"))
-    return jsonify({"error": "Invalid username or password."})
-
-def login_required(f):
-    """Decorator to ensure user is logged in before accessing certain routes."""
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if session.get("logged_in"):
-            return f(*args, **kwargs)
-        return redirect(url_for("login"))
-    return wrapper
+    return {"error": "Invalid username or password."}
 
 @app.route("/logout")  # [NOTE]: not used currently, but can be used for future logout functionality
 @login_required
@@ -123,26 +125,21 @@ def home():
     """Renders the home page."""
     return render_template("index.html")
 
-@app.route("/get_websites")
+@app.route("/get_websites_data")
 @login_required
-def get_websites():
-    """Fetch websites from a .xlsx file and return categorized data."""
-    return jsonify(websites_data)
-
-@app.route("/get_proxied_domains")
-@login_required
-def get_proxied_domains():
-    """Fetch proxied websites domain from a text file."""
-    return jsonify(proxied_domains)
+def get_websites_data():
+    """Fetch preloaded websites data."""
+    return websites_data
 
 @app.route('/get_settings_options')
 @login_required
 def get_settings_options():
-    """Fetch available search engine and API key names only from .env files."""
-    return jsonify({
+    """Fetch available search engine, API key and proxied domain names."""
+    return {
         'searchEngines': list(search_engines.keys()),
-        'apiKeys': list(api_keys.keys())
-    })
+        'apiKeys': list(api_keys.keys()),
+        'proxiedDomains': proxied_domains
+    }
 
 @app.route("/search")
 @login_required
@@ -156,13 +153,9 @@ def search():
     # app.logger.info(f"\n\n[DEBUG]: api_key= {api_key}, search_engine_id= {search_engine_id}, "
     #                 f"query={query}, sort_by={sort_by}, max_queries={max_queries}\n----------\n")
     if not (api_key and search_engine_id) or max_queries > MAX_QUERIES:
-        return jsonify({"error": "Invalid or missing required parameters"}), 400
+        return {"error": "Invalid or missing required parameters"}, 400
     results, total_results, search_time = fetch_all_results(api_key, search_engine_id, query, sort_by, max_queries)
-    return jsonify({
-        "results": results,
-        "total_results": total_results,
-        "search_time": search_time
-    })
+    return {"results": results, "total_results": total_results, "search_time": search_time}
 
 @app.route("/proxy")
 @login_required
@@ -191,10 +184,10 @@ def import_websites():
     """Import and replace websites.xlsx file with proper permissions."""
     try:
         if 'file' not in request.files:
-            return jsonify({"error": "No file provided."}), 400
+            return {"error": "No file provided."}, 400
         file = request.files['file']
         if file.filename == '' or file.filename != 'websites.xlsx':
-            return jsonify({"error": "Invalid or missing websites.xlsx file."}), 400
+            return {"error": "Invalid or missing websites.xlsx file."}, 400
         websites_file = DATA_DIR + 'websites.xlsx'
         file.save(websites_file)   # replace existing file
         if not platform.startswith('win'):  # [[DEV-ENV-GUARD]]
@@ -202,16 +195,16 @@ def import_websites():
             chown(websites_file, getuid(), getgid())  # ubuntu:ubuntu ownership
             chmod(websites_file, 0o640)  # set proper permissions
         temp_data = load_websites_data(websites_file)
-        if not temp_data['categories']:
-            return jsonify({"error": "Invalid or empty websites.xlsx file."}), 400
+        if not temp_data:
+            return {"error": "Invalid or empty websites.xlsx file."}, 400
         global websites_data; websites_data = temp_data
         signal_workers()  # notify workers to reload data
-        return jsonify({"success": True})
+        return {"success": True}
     except RequestEntityTooLarge:
-        return jsonify({"error": ".xlsx file too large (max 16MB)"}), 413
+        return {"error": ".xlsx file too large (max 16MB)"}, 413
     except Exception as e:
         app.logger.error(f"\n\n[ERROR]: importing websites -> {e}\n----------\n")
-        return jsonify({"error": str(e)}), 500
+        return {"error": str(e)}, 500
 
 @app.route("/export_websites")
 @login_required
@@ -219,7 +212,7 @@ def export_websites():
     """Export websites.xlsx file for download."""
     file = DATA_DIR + 'websites.xlsx'
     if path.exists(file): return send_file(file, as_attachment=True)
-    return jsonify({"error": "websites.xlsx file not found"}), 404
+    return {"error": "websites.xlsx file not found"}, 404
 
 @app.route('/dev/reload/<data>')  # [NOTE]: for development/testing purposes only
 @login_required
@@ -236,24 +229,9 @@ def reload(data):
         case 'proxied_domains':
             payload = proxied_domains = load_proxied_domains(DATA_DIR + 'proxied_websites.txt')
         case _:
-            return jsonify({"error": "Invalid data source specified"}), 400
+            return {"error": "Invalid data source specified"}, 400
     signal_workers()
-    return jsonify(payload)
-
-# [NOTE]: deprecated, will be redesigned later for updating entries for add/delete operations in specific files
-# @app.route('/update_settings', methods=['POST'])
-# @login_required
-# def update_settings():
-#     """Update global settings based on user input."""
-#     global MAX_QUERIES
-#     try:
-#         data = request.get_json()
-#         MAX_QUERIES = int(data['maxQueries'])
-#         # app.logger.info(f"\n\n[DEBUG]: maxQueries={MAX_QUERIES}\n----------\n")
-#         return jsonify({'success': True})
-#     except Exception as e:
-#         app.logger.error(f"\n\n[ERROR]: updating settings -> {e}\n----------\n")
-#         return jsonify({'success': False, 'error': str(e)}), 500
+    return payload
 
 
 if __name__ == "__main__":

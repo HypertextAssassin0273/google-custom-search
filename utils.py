@@ -6,9 +6,9 @@ import signal
 
 def load_websites_data(file_path):
     """Load websites data from websites.xlsx file."""
+    categories = {}
     try:  # read excel file with multiple sheets
         with ExcelFile(file_path) as xl:  # context manager ensures file is closed
-            categories = {}
             for sheet_name in xl.sheet_names:  # process each sheet as a category
                 df = read_excel(xl, sheet_name=sheet_name)
                 if 'Website Name' in df.columns and 'Website Link' in df.columns:  # ensure columns exist and clean data
@@ -17,14 +17,10 @@ def load_websites_data(file_path):
                         for _, row in df.iterrows()
                         if notna(row['Website Name']) and notna(row['Website Link'])
                     ]
-                    categories[sheet_name] = {
-                        "websites": websites,
-                        "max_limit": len(websites)  # dynamic max limit per category
-                    }
-            return {"categories": categories, "default_category": list(categories.keys())[0] if categories else None}
-    except Exception as e:
-        app.logger.error(f"\n\n[ERROR]: loading websites -> {e}\n----------\n")
-        return {"categories": {}, "default_category": None}
+                    categories[sheet_name] = {"websites": websites, "max_limit": len(websites)}
+    except FileNotFoundError: ...  # file doesn't exist yet
+    except Exception as e: app.logger.error(f"\n\n[ERROR]: loading websites -> {e}\n----------\n")
+    return categories
 
 def load_proxied_domains(file_path):
     """Load proxied domains from proxied_websites.txt file."""
