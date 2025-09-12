@@ -46,5 +46,5 @@ def signal_workers():
     if platform.startswith('win'): return  # [[DEV-ENV-GUARD]]
     ppid = getppid()
     if ppid > 1:  # avoid signaling init/systemd
-        kill(ppid, signal.SIGUSR1)  # SIGUSR1 -> gunicorn specific signal? where does it exist??
+        kill(ppid, signal.SIGHUP)  # SIGHUP -> graceful reload (workers only), SIGUSR2 -> full restart (master + workers)
         app.logger.info(f"Signaled gunicorn master (PID: {ppid}) to reload workers.")
