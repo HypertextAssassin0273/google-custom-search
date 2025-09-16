@@ -739,8 +739,8 @@
     }
 
     function hasUnsavedChanges() {
-        const changes = pendingChanges[currentEditTab];
-        return changes.add.length > 0 || changes.update.length > 0 || changes.delete.length > 0;
+        const { add, update, delete: del } = pendingChanges[currentEditTab];
+        return add.length || update.length || del.length;
     }
 
     const updateSaveEditButtonState = () => saveEditButton.disabled = !hasUnsavedChanges();
@@ -835,16 +835,24 @@
 
     function populateEditList() { // populate the edit list based on current tab
         editList.innerHTML = '';
-        fetch(`/get_${currentEditTab}_settings`)
+        const {add: added, delete: deleted} = pendingChanges[currentEditTab];
+        if(added.length || deleted.length) {
+            fetch(`/get_${currentEditTab}_settings`)
             .then(res => res.json())
             .then(data => {
-                const deleteSet = new Set(pendingChanges[currentEditTab].delete);
-                const items = data.filter(name => !deleteSet.has(name));
-                pendingChanges[currentEditTab].add.forEach(item => { // add items that are pending addition
-                    if (!items.includes(item.name)) items.push(item.name);
-                });
+                if (data.error) { alert(data.error); return; }
+                const deleteSet = new Set(deleted),
+                      items = data.filter(name => !deleteSet.has(name));
+                added.forEach(item => items.includes(item.name) || items.push(item.name));
                 populateOptions(editList, items);
             });
+        } else {
+            populateOptions(editList,
+                currentEditTab === 'engine' ? Array.from(engineSelect.options, o => o.value) :
+                currentEditTab === 'api' ? Array.from(apiSelect.options, o => o.value) :
+                Array.from(proxiedDomains)
+            );
+        }
     }
 
     // Load settings on page load
