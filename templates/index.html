@@ -159,10 +159,7 @@
             justify-content: space-between;
             align-items: center;
         }
-        select[size] {
-            width: 100%;
-            border-radius: 4px;
-        }
+        select[size] { width: 100%; border-radius: 4px; }
         .nav-link { cursor: pointer; }
         .nav-tabs .nav-link.active {
             background-color: #f1f3f5;
@@ -743,33 +740,39 @@
         return add.length || update.length || del.length;
     }
 
-    const updateSaveEditButtonState = () => saveEditButton.disabled = !hasUnsavedChanges();
-
     function resetEditForm() {
-        selectedItem = null;
         editName.value = editValue.value = '';
-        editAction.textContent = 'Add';
-        editAction.disabled = editDelete.disabled = true;
+        saveEditButton.disabled = editAction.disabled = true;
         pendingChanges[currentEditTab] = { add: [], update: [], delete: [] }; // clear pending changes for current tab
-        updateSaveEditButtonState();
         editValue.style.display = currentEditTab === 'proxy' ? "none" : "block"; // reset input field visibility based on tab
+        clearSelection();
     }
 
     function handleItemSelect() {
         const selectedValue = editList.value;
         if (selectedValue) {
-            selectedItem = selectedValue;
-            editName.value = selectedValue;
-            editAction.textContent = 'Update';
+            editName.value = selectedItem = selectedValue;
+            if (currentEditTab !== 'proxy') editAction.textContent = 'Update';
             editDelete.disabled = false;
-            updateActionState();
         }
     }
 
-    function updateActionState() {
-        editAction.disabled = !(editName.value.trim() && (currentEditTab === 'proxy' || editValue.value.trim()));
-        // If name changed from selection, switch to Add mode
-        if (selectedItem) editAction.textContent = editName.value.trim() === selectedItem ? 'Update' : 'Add';
+    function updateActionState() { // update modal states based on input fields
+        const typedName = editName.value.trim();
+        if (typedName && Array.from(editList.options).some(option => option.value === typedName)) { // select if typed name matches an option
+            editList.value = selectedItem = typedName;
+            editDelete.disabled = false;
+            if (currentEditTab === 'proxy') { editAction.disabled = true; return; } // no duplicates allowed for proxy
+            editAction.textContent = 'Update';
+        } else clearSelection(); // unselect if name is cleared or doesn't match any option
+        editAction.disabled = !(typedName && (currentEditTab === 'proxy' || editValue.value.trim()));
+    }
+
+    function clearSelection() {
+        selectedItem = null;
+        editList.value = '';
+        editDelete.disabled = true;
+        editAction.textContent = 'Add';
     }
 
     function handleAction() { // handles Add/Update actions only
@@ -803,7 +806,7 @@
         editAction.textContent = 'Add';
         updateActionState();
         populateEditList(); // update the list to reflect changes
-        updateSaveEditButtonState(); // enable the save button
+        saveEditButton.disabled = !hasUnsavedChanges(); // enable the save button
     }
 
     function saveEditSettings() { // save all pending changes
