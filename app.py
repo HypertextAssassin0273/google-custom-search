@@ -138,19 +138,6 @@ def get_settings_options():
         'proxiedDomains': proxied_domains
     }
 
-@app.route('/get_<type>_settings')
-@login_required
-def get_individual_settings(type):
-    """Fetch individual settings data based on type."""
-    match type:
-        case "engine":
-            return list(search_engines.keys())
-        case "api":
-            return list(api_keys.keys())
-        case "proxy":
-            return proxied_domains
-    return {"error": "Invalid settings type"}, 400
-
 @app.route("/search")
 @login_required
 def search():
@@ -240,6 +227,7 @@ def update_settings():
     except Exception as e:
         app.logger.error(f"\n\n[ERROR]: updating settings -> {e}\n----------\n")
         return {"error": str(e)}, 500
+
 
 if __name__ == "__main__":
     """Main entry point for the Flask application on development server (for testing purposes)."""

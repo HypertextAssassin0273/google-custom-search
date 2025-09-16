@@ -835,24 +835,16 @@
 
     function populateEditList() { // populate the edit list based on current tab
         editList.innerHTML = '';
+        let items = currentEditTab === 'engine' ? Array.from(engineSelect.options, o => o.value) :
+                    currentEditTab === 'api' ? Array.from(apiSelect.options, o => o.value) :
+                    Array.from(proxiedDomains);
         const {add: added, delete: deleted} = pendingChanges[currentEditTab];
-        if(added.length || deleted.length) {
-            fetch(`/get_${currentEditTab}_settings`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.error) { alert(data.error); return; }
-                const deleteSet = new Set(deleted),
-                      items = data.filter(name => !deleteSet.has(name));
-                added.forEach(item => items.includes(item.name) || items.push(item.name));
-                populateOptions(editList, items);
-            });
-        } else {
-            populateOptions(editList,
-                currentEditTab === 'engine' ? Array.from(engineSelect.options, o => o.value) :
-                currentEditTab === 'api' ? Array.from(apiSelect.options, o => o.value) :
-                Array.from(proxiedDomains)
-            );
+        if(added.length || deleted.length) { // apply pending changes if any exist
+            const deleteSet = new Set(deleted);
+            items = items.filter(name => !deleteSet.has(name));
+            added.forEach(item => items.includes(item.name) || items.push(item.name));
         }
+        populateOptions(editList, items);
     }
 
     // Load settings on page load
@@ -895,13 +887,11 @@
     document.getElementById('searchForm').addEventListener('submit', function(event) { // to make search on Enter key
         event.preventDefault(); performSearch(1);
     });
-    document.addEventListener('click', (event) => { // close settings modal on any click outside
+    document.addEventListener('click', event => { // close settings modal on any click outside
         if (settingsModal.style.display === 'block' &&
             !settingsModal.contains(event.target) &&
             !settingsButton.contains(event.target))
                 closeSettingsModal(); // cancel changes and close
-    });
-    document.addEventListener('click', (event) => {
         if (editSettingsModal.style.display === 'block' &&
             !editSettingsModal.contains(event.target) &&
             !editSettingsButton.contains(event.target)) {
