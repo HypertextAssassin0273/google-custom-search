@@ -780,7 +780,9 @@
         if (action === 'add') {
             pendingChanges[currentEditTab].add.push(currentEditTab === 'proxy' ? { name } : { name, value });
         } else if (action === 'update') {
-            pendingChanges[currentEditTab].update.push(currentEditTab === 'proxy' ? { original: selectedItem, name } : { original: selectedItem, name, value });  
+            pendingChanges[currentEditTab].update.push(
+                currentEditTab === 'proxy' ? { original: selectedItem, name } : { original: selectedItem, name, value }
+            );
         }
         __postActionReset()
     }
@@ -817,6 +819,10 @@
         .then(response => response.json())
         .then(data => {
             if (data.error) { alert(data.error); return; }
+            if (currentEditTab !== 'proxy') { // handle localStorage cleanup for deleted items
+                const key = currentEditTab === 'api' ? 'apiKey' : 'searchEngine', value = localStorage.getItem(key);
+                if(value && pendingChanges[currentEditTab].delete.includes(value)) localStorage.removeItem(key);
+            }
             resetEditForm();
             loadSettingsOptions(); // reload settings options for the main modal
             closeEditSettingsModal();
