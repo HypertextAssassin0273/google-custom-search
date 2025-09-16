@@ -1,7 +1,7 @@
-from shared import app
+from shared import *
 from pandas import ExcelFile, read_excel, notna
+from dotenv import dotenv_values
 from os import getppid, kill
-from sys import platform
 import signal
 
 def load_websites_data(file_path):
@@ -43,8 +43,48 @@ def clear_rate_limits(storage, rate_limit_id, path=''):
 
 def signal_workers():
     """Signal gunicorn workers to reload gracefully."""
-    if platform.startswith('win'): return  # [[DEV-ENV-GUARD]]
     ppid = getppid()
     if ppid > 1:  # avoid signaling init/systemd
         kill(ppid, signal.SIGHUP)  # SIGHUP -> graceful reload (workers only), SIGUSR2 -> full restart (master + workers)
         app.logger.info(f"Signaled gunicorn master (PID: {ppid}) to reload workers.")
+
+def update_env_file(file_path, changes):
+    """Apply add, update, delete changes to a .env file (dict-based)."""
+    env_data = dotenv_values(file_path)
+    for name in changes.get('delete', []):
+        env_data.pop(name, None)
+    for upd in changes.get('update', []):
+        orig, name, value = upd.get('original'), upd.get('name'), upd.get('value')
+        if orig in env_data:
+            env_data.pop(orig)
+        if name and value:
+            env_data[name] = value
+    for add in changes.get('add', []):
+        name, value = add.get('name'), add.get('value')
+        if name and value:
+            env_data[name] = value
+    with open(file_path, 'w') as f:  # write back
+        for k, v in env_data.items():
+            f.write(f"'{k}'='{v}'\n")
+
+def update_proxy_file(file_path, changes):
+    """Apply add, update, delete changes to a proxied domains file (list-based)."""
+    try:
+        with open(file_path, 'r') as f:
+            domains = [line.strip() for line in f if line.strip()]
+    except FileNotFoundError:
+        domains = []
+    for name in changes.get('delete', []):
+        while name in domains:
+            domains.remove(name)
+    for upd in changes.get('update', []):
+        orig, name = upd.get('original'), upd.get('name')
+        if orig in domains and name:
+            domains = [name if d == orig else d for d in domains]
+    for add in changes.get('add', []):
+        name = add.get('name')
+        if name and name not in domains:
+            domains.append(name)
+    with open(file_path, 'w') as f:
+        for domain in domains:
+            f.write(f"{domain}\n")

@@ -1,16 +1,13 @@
-from shared import app, MAX_QUERIES
-from utils import load_websites_data, load_proxied_domains, clear_rate_limits, signal_workers
+from utils import *
 from search import fetch_all_results
-from flask import request, session, redirect, url_for, render_template, send_file
+from flask import json, request, session, redirect, url_for, render_template, send_file
 from werkzeug.exceptions import RequestEntityTooLarge
-from dotenv import dotenv_values
 from datetime import timedelta
 from flask_limiter import Limiter
 from requests.adapters import HTTPAdapter
 from functools import wraps
 from re import match, sub
-from os import chmod, path
-from sys import platform
+from os import chmod, path, getuid, getgid, chown
 import requests, logging, uuid
 
 
@@ -141,6 +138,19 @@ def get_settings_options():
         'proxiedDomains': proxied_domains
     }
 
+@app.route('/get_<type>_settings')
+@login_required
+def get_individual_settings(type):
+    """Fetch individual settings data based on type."""
+    match type:
+        case "engine":
+            return list(search_engines.keys())
+        case "api":
+            return list(api_keys.keys())
+        case "proxy":
+            return proxied_domains
+    return {"error": "Invalid settings type"}, 400
+
 @app.route("/search")
 @login_required
 def search():
@@ -190,14 +200,8 @@ def import_websites():
             return {"error": "Invalid or missing websites.xlsx file."}, 400
         websites_file = DATA_DIR + 'websites.xlsx'
         file.save(websites_file)   # replace existing file
-        if not platform.startswith('win'):  # [[DEV-ENV-GUARD]]
-            from os import getuid, getgid, chown
-            chown(websites_file, getuid(), getgid())  # ubuntu:ubuntu ownership
-            chmod(websites_file, 0o640)  # set proper permissions
-        temp_data = load_websites_data(websites_file)
-        if not temp_data:
-            return {"error": "Invalid or empty websites.xlsx file."}, 400
-        global websites_data; websites_data = temp_data
+        chown(websites_file, getuid(), getgid())  # ubuntu:ubuntu ownership
+        chmod(websites_file, 0o640)  # set proper permissions
         signal_workers()  # notify workers to reload data
         return {"success": True}
     except RequestEntityTooLarge:
@@ -214,25 +218,28 @@ def export_websites():
     if path.exists(file): return send_file(file, as_attachment=True)
     return {"error": "websites.xlsx file not found"}, 404
 
-@app.route('/dev/reload/<data>')  # [NOTE]: for development/testing purposes only
+@app.route("/update_settings", methods=["POST"])
 @login_required
-def reload(data):
-    """Reload specific data source and update global variable."""
-    global search_engines, api_keys, websites_data, proxied_domains
-    match data:
-        case 'search_engines': 
-            payload = search_engines = dotenv_values(DATA_DIR + 'search_engines.env')
-        case 'api_keys':
-            payload = api_keys = dotenv_values(DATA_DIR + 'api_keys.env')
-        case 'websites':
-            payload = websites_data = load_websites_data(DATA_DIR + 'websites.xlsx')
-        case 'proxied_domains':
-            payload = proxied_domains = load_proxied_domains(DATA_DIR + 'proxied_websites.txt')
-        case _:
-            return {"error": "Invalid data source specified"}, 400
-    signal_workers()
-    return payload
-
+def update_settings():
+    """Process bulk updates to settings (refactored)."""
+    try:
+        settings_type = request.form.get("type")
+        changes_json = request.form.get("changes")
+        if not all([settings_type, changes_json]):
+            return {"error": "Missing required parameters"}, 400
+        file_path, update_func = {
+            "engine": (DATA_DIR + "search_engines.env", update_env_file),
+            "api": (DATA_DIR + "api_keys.env", update_env_file),
+            "proxy": (DATA_DIR + "proxied_websites.txt", update_proxy_file),
+        }[settings_type]
+        update_func(file_path, json.loads(changes_json))
+        signal_workers()
+        return {"success": True}
+    except json.JSONDecodeError:
+        return {"error": "Invalid JSON format"}, 400
+    except Exception as e:
+        app.logger.error(f"\n\n[ERROR]: updating settings -> {e}\n----------\n")
+        return {"error": str(e)}, 500
 
 if __name__ == "__main__":
     """Main entry point for the Flask application on development server (for testing purposes)."""

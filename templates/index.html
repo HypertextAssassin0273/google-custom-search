@@ -109,49 +109,31 @@
         }
         .custom-slider {
             width: 50%;
-            -webkit-appearance: none;
-            appearance: none;
-            height: 8px;
-            background: #cce5ff; /* Light blue track */
-            border-radius: 5px;
+            height: 12px;
+            border-radius: 6px;
             outline: none;
-            transition: background 0.3s;
+            background: linear-gradient(
+                to right,
+                #007bff 0%,
+                #007bff var(--value, 100%),
+                #e0e0e0 var(--value, 100%),
+                #e0e0e0 100%
+            );
+            appearance: none;
         }
         .custom-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #007bff;
+            border: 2px solid #fff;
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+            cursor: pointer;
             appearance: none;
-            width: 20px;
-            height: 20px;
-            background: #007bff; /* Primary blue */
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
-            transition: background 0.3s;
-        }
-        .custom-slider::-moz-range-thumb {
-            width: 20px;
-            height: 20px;
-            background: #007bff; /* Primary blue */
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
-        }
-        .custom-slider:hover::-webkit-slider-thumb,
-        .custom-slider:hover::-moz-range-thumb {
-            background: #0056b3; /* Darker blue on hover */
-        }
-        .custom-slider::-webkit-slider-runnable-track {
-            background: linear-gradient(to right, #007bff 0%, #007bff var(--value), #cce5ff var(--value), #cce5ff 100%);
-        }
-        .custom-slider::-moz-range-track {
-            background: #cce5ff; /* Light blue track */
-        }
-        .custom-slider {
-            --value: 100%;
         }
 
-        /* Modal Styles */
-        #settingsModal {
+        /* Settings Modal Styles */
+        .settings-modal {
             display: none;
             position: absolute;
             top: 15px; /* Adjust as needed */
@@ -164,6 +146,32 @@
             max-width: calc(100%); /* Prevent overflow */
             height: auto; /* Fit to content height */
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Edit-Settings Modal Styles */
+        .edit-tab-content { display: none; }
+        .edit-tab-content.active { display: block; }
+        .scroll-container { width: 90%; }
+        .button-container {
+            width: 10%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+        }
+        select[size] {
+            width: 100%;
+            height: 200px;
+            border-radius: 4px;
+        }
+        .nav-link { cursor: pointer; }
+        .nav-tabs .nav-link.active {
+            background-color: #f1f3f5;
+            color: #222 !important;
+            font-weight: bold;
+            border-radius: 5px 5px 0 0;
+            border-color: #bbb #bbb #fff;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
         }
     </style>
 
@@ -215,8 +223,11 @@
         </div>
 
         <!-- Modal for Settings -->
-        <div id="settingsModal" class="modal">
-            <h3>Settings</h3>
+        <div id="settingsModal" class="modal settings-modal">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3>Settings</h3>
+                <button id="editSettingsButton" class="btn btn-danger" onclick="openEditSettingsModal()">Edit</button>
+            </div>
             <form id="settingsForm">
                 <div class="mb-3">
                     <label for="pagesSlider"><b><i>Results (10-100):</i></b></label>
@@ -235,7 +246,43 @@
         </div>
 
         <!-- Modal for Edit Settings -->
-        <!-- new code here... -->
+        <div id="editSettingsModal" class="modal settings-modal">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3>Edit Settings</h3>
+                <button type="button" class="btn-close" aria-label="Close" onclick="closeEditSettingsModal()"></button>
+            </div>
+            <ul class="nav nav-tabs mb-3">
+                <li class="nav-item">
+                    <a class="nav-link active" id="engine-tab" onclick="switchEditTab('engine')">Engine</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="api-tab" onclick="switchEditTab('api')">API</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="proxy-tab" onclick="switchEditTab('proxy')">Proxy</a>
+                </li>
+            </ul>
+            <div id="editTabContent" class="edit-tab-content active">
+                <div class="mb-3">
+                    <input type="text" id="editName" class="form-control mb-2" placeholder="Name">
+                    <input type="text" id="editValue" class="form-control" placeholder="Value">
+                </div>
+                <div class="d-flex">
+                    <div class="scroll-container me-2">
+                        <select id="editList" class="form-select" size="10" onchange="handleItemSelect()"></select>
+                    </div>
+                    <div class="button-container">
+                        <div>
+                            <button id="editAction" class="btn btn-primary mb-2 w-100" onclick="handleAction()">Add</button>
+                            <button id="editDelete" class="btn btn-danger w-100 mb-3" onclick="handleDelete()" disabled>Delete</button>
+                        </div>
+                        <div>
+                            <button id="saveEditButton" class="btn btn-success" onclick="saveEditSettings()" disabled>Save</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Websites Tab -->
         <div id="websitesTab" class="tab-content">
@@ -289,6 +336,15 @@
         websitesNotLoaded = true,
         exportCooldown = false;
     
+    // Edit settings state
+    let currentEditTab = 'engine',
+        selectedItem = null,
+        pendingChanges = {
+            engine: { add: [], update: [], delete: [] },
+            api: { add: [], update: [], delete: [] },
+            proxy: { add: [], update: [], delete: [] }
+        };
+    
     // [DEBUG]: reference variables for debugging
     // let R = [], PP = preloadedPages;
     // Object.defineProperty(window, "PD", { get: () => proxiedDomains }); // points latest proxiedDomains
@@ -320,11 +376,17 @@
           settingsForm = document.getElementById('settingsForm'),
           settingsModal = document.getElementById('settingsModal'),
           settingsButton = document.getElementById('settingsButton'),
-        //   editSettingsModal = document.getElementById('editSettingsModal'),
-        //   editSettingsButton = document.getElementById('editSettingsButton'),
           saveButton = document.getElementById('saveButton'),
           importInput = document.getElementById('importInput'),
-          exportBtn = document.getElementById('exportBtn');
+          exportBtn = document.getElementById('exportBtn'),
+          editSettingsModal = document.getElementById('editSettingsModal'),
+          editSettingsButton = document.getElementById('editSettingsButton'),
+          saveEditButton = document.getElementById('saveEditButton'),
+          editName = document.getElementById('editName'),
+          editValue = document.getElementById('editValue'),
+          editList = document.getElementById('editList'),
+          editAction = document.getElementById('editAction'),
+          editDelete = document.getElementById('editDelete');
 
     // Create Simple Select Options
     function populateOptions(elem, items, selected = null) {
@@ -649,6 +711,137 @@
         saveButton.disabled = slider.value === settings.maxQueries && apiSelect.value === settings.apiKey;
     }
 
+    // Edit Settings Modal functions
+    function openEditSettingsModal() {
+        closeSettingsModal();
+        editSettingsModal.style.display = 'block';
+        switchEditTab('engine'); // default to engine tab
+    }
+
+    function closeEditSettingsModal() {
+        editSettingsModal.style.display = 'none';
+        resetEditForm();
+    }
+
+    function switchEditTab(tabName) {
+        document.querySelectorAll('.nav-link').forEach(tab => tab.classList.remove('active')); // hide all tabs
+        document.getElementById(`${tabName}-tab`).classList.add('active'); // activate selected tab
+        resetEditForm();
+        currentEditTab = tabName;
+        if (tabName === 'proxy') { // configure UI for current tab type
+            editName.placeholder = "Domain";
+            editValue.style.display = "none";
+        } else {
+            editName.placeholder = "Name";
+            editValue.style.display = "block";
+            editValue.placeholder = tabName === 'engine' ? "Engine ID" : "API Key";
+        }
+        populateEditList(); // load appropriate data into the list
+    }
+
+    function hasUnsavedChanges() {
+        const changes = pendingChanges[currentEditTab];
+        return changes.add.length > 0 || changes.update.length > 0 || changes.delete.length > 0;
+    }
+
+    const updateSaveEditButtonState = () => saveEditButton.disabled = !hasUnsavedChanges();
+
+    function resetEditForm() {
+        selectedItem = null;
+        editName.value = editValue.value = '';
+        editAction.textContent = 'Add';
+        editAction.disabled = editDelete.disabled = true;
+        pendingChanges[currentEditTab] = { add: [], update: [], delete: [] }; // clear pending changes for current tab
+        updateSaveEditButtonState();
+        editValue.style.display = currentEditTab === 'proxy' ? "none" : "block"; // reset input field visibility based on tab
+    }
+
+    function handleItemSelect() {
+        const selectedValue = editList.value;
+        if (selectedValue) {
+            selectedItem = selectedValue;
+            editName.value = selectedValue;
+            editAction.textContent = 'Update';
+            editDelete.disabled = false;
+            updateActionState();
+        }
+    }
+
+    function updateActionState() {
+        editAction.disabled = !(editName.value.trim() && (currentEditTab === 'proxy' || editValue.value.trim()));
+        // If name changed from selection, switch to Add mode
+        if (selectedItem) editAction.textContent = editName.value.trim() === selectedItem ? 'Update' : 'Add';
+    }
+
+    function handleAction() { // handles Add/Update actions only
+        const name = editName.value.trim(), value = editValue.value.trim();
+        if (!name) return;
+        const action = editAction.textContent.toLowerCase();
+        if (action === 'add') {
+            pendingChanges[currentEditTab].add.push(currentEditTab === 'proxy' ? { name } : { name, value });
+        } else if (action === 'update') {
+            pendingChanges[currentEditTab].update.push(currentEditTab === 'proxy' ? { original: selectedItem, name } : { original: selectedItem, name, value });  
+        }
+        __postActionReset()
+    }
+
+    function handleDelete() {
+        if (!selectedItem) return;
+        if (currentEditTab !== 'proxy' && editList.options.length === 1) {
+            alert(`Cannot delete the last entry. At least one ${currentEditTab} must remain.`);
+            return;
+        }
+        pendingChanges[currentEditTab].delete.push(selectedItem);
+        __postActionReset()
+    }
+
+    function __postActionReset() { // common reset tasks after Add/Update/Delete
+        selectedItem = null;
+        editName.value = editValue.value = '';
+        editDelete.disabled = true;
+        editAction.textContent = 'Add';
+        updateActionState();
+        populateEditList(); // update the list to reflect changes
+        updateSaveEditButtonState(); // enable the save button
+    }
+
+    function saveEditSettings() { // save all pending changes
+        if (!hasUnsavedChanges()) return;
+        const formData = new FormData();
+        formData.append('type', currentEditTab);
+        formData.append('changes', JSON.stringify(pendingChanges[currentEditTab]));
+        fetch('/update_settings', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) { alert(data.error); return; }
+            resetEditForm();
+            loadSettingsOptions(); // reload settings options for the main modal
+            closeEditSettingsModal();
+            alert('Changes saved successfully!');
+        })
+        .catch(error => {
+            console.error('Error saving changes:', error);
+            alert('Failed to save changes. Please try again.');
+        });
+    }
+
+    function populateEditList() { // populate the edit list based on current tab
+        editList.innerHTML = '';
+        fetch(`/get_${currentEditTab}_settings`)
+            .then(res => res.json())
+            .then(data => {
+                const deleteSet = new Set(pendingChanges[currentEditTab].delete);
+                const items = data.filter(name => !deleteSet.has(name));
+                pendingChanges[currentEditTab].add.forEach(item => { // add items that are pending addition
+                    if (!items.includes(item.name)) items.push(item.name);
+                });
+                populateOptions(editList, items);
+            });
+    }
+
     // Load settings on page load
     function loadSettingsOptions() {
         fetch('/get_settings_options')
@@ -670,10 +863,6 @@
                 // Create dropdowns
                 populateOptions(apiSelect, data.apiKeys, settings.apiKey);
                 populateOptions(engineSelect, data.searchEngines, settings.searchEngine);
-                //Create scroll boxes (for edit settings modal, future use)
-                // populateOptions(apiScroll, data.apiKeys);
-                // populateOptions(engineScroll, data.searchEngines);
-                // populateOptions(proxyScroll, data.proxiedDomains);
             })
             .catch(error => console.error('Failed to load settings options:', error));
     }
@@ -688,14 +877,23 @@
     websitesNextButton.addEventListener('click', () => displayWebsites(websitesCurrentPage + 1));
     settingsForm.addEventListener('change', updateSaveButtonState); // for dropdown
     settingsForm.addEventListener('input', updateSaveButtonState); // for slider
+    editName.addEventListener('input', updateActionState);
+    editValue.addEventListener('input', updateActionState);
+    document.getElementById('searchForm').addEventListener('submit', function(event) { // to make search on Enter key
+        event.preventDefault(); performSearch(1);
+    });
     document.addEventListener('click', (event) => { // close settings modal on any click outside
         if (settingsModal.style.display === 'block' &&
             !settingsModal.contains(event.target) &&
             !settingsButton.contains(event.target))
                 closeSettingsModal(); // cancel changes and close
     });
-    document.getElementById('searchForm').addEventListener('submit', function(event) { // to make search on Enter key
-        event.preventDefault(); performSearch(1);
+    document.addEventListener('click', (event) => {
+        if (editSettingsModal.style.display === 'block' &&
+            !editSettingsModal.contains(event.target) &&
+            !editSettingsButton.contains(event.target)) {
+            closeEditSettingsModal();
+        }
     });
 </script>
 </body>
