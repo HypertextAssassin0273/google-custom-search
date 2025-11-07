@@ -1,4 +1,4 @@
-from shared import *
+from shared import app, MAX_RESULTS
 from concurrent.futures import ThreadPoolExecutor, as_completed
 # from json import dump
 from re import sub

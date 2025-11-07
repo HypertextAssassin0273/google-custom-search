@@ -1,34 +1,32 @@
 from utils import *
 from search import fetch_all_results
-from flask import json, request, session, redirect, url_for, render_template, send_file
+from flask import json, request, redirect, url_for, render_template, send_file
 from werkzeug.exceptions import RequestEntityTooLarge
+from dotenv import dotenv_values
 from datetime import timedelta
 from flask_limiter import Limiter
 from requests.adapters import HTTPAdapter
 from functools import wraps
 from re import match, sub
-from os import chmod, path, getuid, getgid, chown
-import requests, logging, uuid
+from os import chmod, getuid, getgid, chown
+import requests
 
-
-# Set directory for data files
-DATA_DIR = path.join(path.dirname(path.abspath(__file__)), 'data', '')  # ensure trailing slash for consistency
 
 # Load credentials
 credentials = dotenv_values(DATA_DIR + "credentials.env")
 app.secret_key = credentials.get("FLASK_SECRET_KEY")
 
 # Load search engines and API keys (as dictionaries)
-search_engines = dotenv_values(DATA_DIR + 'search_engines.env')
-api_keys = dotenv_values(DATA_DIR + 'api_keys.env')
+search_engines = dotenv_values(ENG_PATH)
+api_keys = dotenv_values(API_PATH)
 
 # Validate the required environment variables
 if not (api_keys and search_engines and credentials and len(credentials) > 1 and app.secret_key):
     raise Exception("Either any of the required .env files or variables are missing or empty!")
 
 # Load other data files
-websites_data = load_websites_data(DATA_DIR + 'websites.xlsx')
-proxied_domains = load_proxied_domains(DATA_DIR + 'proxied_websites.txt')
+websites_data = load_websites_data()
+proxied_domains = load_proxied_domains()
 
 # App configuration (for security and session management)
 app.config.update(
@@ -39,23 +37,13 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(weeks=1)  # set session timeout to 1 week duration
 )
 
-# Create a custom key function for session-based rate limiting
-def get_rate_limit_key():
-    """Generate a unique key for rate limiting based on session ID."""
-    if 'rate_limit_id' not in session:
-        session['rate_limit_id'] = str(uuid.uuid4())
-    return f"session:{session['rate_limit_id']}"
-
 # Initialize Flask-Limiter (with session-based rate limiting)
 limiter = Limiter(
     key_func=get_rate_limit_key,
     app=app,
     storage_uri="redis://127.0.0.1:6379"  # use redis-server to enforce consistent limits across multiple workers
 )
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-limiter.logger.setLevel(logging.ERROR)
+limiter.logger.setLevel(logging.ERROR) # suppress verbose logs, only log errors
 
 # Create optimized HTTP session for proxy requests
 proxy_session = requests.Session()
@@ -185,10 +173,9 @@ def import_websites():
         file = request.files['file']
         if file.filename == '' or file.filename != 'websites.xlsx':
             return {"error": "Invalid or missing websites.xlsx file."}, 400
-        websites_file = DATA_DIR + 'websites.xlsx'
-        file.save(websites_file)   # replace existing file
-        chown(websites_file, getuid(), getgid())  # ubuntu:ubuntu ownership
-        chmod(websites_file, 0o640)  # set proper permissions
+        file.save(WEB_PATH)   # replace existing file
+        chown(WEB_PATH, getuid(), getgid())  # ubuntu:ubuntu ownership
+        chmod(WEB_PATH, 0o640)  # set proper permissions
         signal_workers()  # notify workers to reload data
         return {"success": True}
     except RequestEntityTooLarge:
@@ -201,26 +188,32 @@ def import_websites():
 @login_required
 def export_websites():
     """Export websites.xlsx file for download."""
-    file = DATA_DIR + 'websites.xlsx'
-    if path.exists(file): return send_file(file, as_attachment=True)
+    if path.exists(WEB_PATH): return send_file(WEB_PATH, as_attachment=True)
     return {"error": "websites.xlsx file not found"}, 404
 
 @app.route("/update_settings", methods=["POST"])
 @login_required
 def update_settings():
-    """Process bulk updates to settings (refactored)."""
+    """Update search engines, API keys or proxied domains based on user changes."""
     try:
-        settings_type = request.form.get("type")
-        changes_json = request.form.get("changes")
-        if not all([settings_type, changes_json]):
+        _type = request.form.get("type")
+        _changes = request.form.get("changes")
+        if not (_type and _changes):
             return {"error": "Missing required parameters"}, 400
-        file_path, update_func = {
-            "engine": (DATA_DIR + "search_engines.env", update_env_file),
-            "api": (DATA_DIR + "api_keys.env", update_env_file),
-            "proxy": (DATA_DIR + "proxied_websites.txt", update_proxy_file),
-        }[settings_type]
-        update_func(file_path, json.loads(changes_json))
-        signal_workers()
+        match _type:
+            case "engine":
+                # global search_engines  # [DEV]
+                update_env_file(ENG_PATH, search_engines, json.loads(_changes))
+                # search_engines = dotenv_values(ENG_PATH)  # [DEV]
+            case "api":
+                # global api_keys  # [DEV]
+                update_env_file(API_PATH, api_keys, json.loads(_changes))
+                # api_keys = dotenv_values(API_PATH)  # [DEV]
+            case "proxy":
+                # global proxied_domains  # [DEV]
+                update_proxy_file(proxied_domains, json.loads(_changes))
+                # proxied_domains = load_proxied_domains()  # [DEV]
+        signal_workers()  # [NOTE]: needs to be commented out in windows env
         return {"success": True}
     except json.JSONDecodeError:
         return {"error": "Invalid JSON format"}, 400

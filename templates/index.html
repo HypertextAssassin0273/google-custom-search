@@ -151,16 +151,19 @@
         /* Edit-Settings Modal Styles */
         .edit-tab-content { display: none; }
         .edit-tab-content.active { display: block; }
-        .scroll-container { width: 90%; }
+        .scroll-container {
+            flex: 1;       /* take remaining space */
+            min-width: 0;  /* allow shrinking instead of overflow */
+        }
         .button-container {
-            width: 10%;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             align-items: center;
+            flex: 0 0 70px;  /* fixed narrow width for buttons */
         }
         select[size] { width: 100%; border-radius: 4px; }
-        .nav-link { cursor: pointer; }
+        .nav-link { cursor: pointer; } 
         .nav-tabs .nav-link.active {
             background-color: #f1f3f5;
             color: #222 !important;
@@ -182,7 +185,7 @@
         <!-- Google Custom Search Tab -->
         <div id="googleSearchTab" class="tab-content active">
             <div class="d-flex justify-content-between mb-2">
-                <button id="toggleTabButton" class="btn btn-outline-secondary" onclick="toggleTab()">Open Web Previewer</button>
+                <button class="btn btn-outline-secondary" onclick="toggleTab()">Open Web Previewer</button>
                 <button id="settingsButton" class="btn btn-outline-secondary" onclick="openSettingsModal()">Settings</button>
             </div>
 
@@ -245,7 +248,9 @@
         <div id="editSettingsModal" class="modal settings-modal">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h3>Edit Settings</h3>
-                <button type="button" class="btn-close" aria-label="Close" onclick="closeEditSettingsModal()"></button>
+                <!-- FUTURE WORK: add scroll box view button to flip list (ascending/descending) -->
+                <!-- <button type="button" class="btn btn-outline-secondary" title="Toggle View" onclick="toggleScrollView()"></button> -->
+                <button type="button" class="btn-close" title="Close / Cancel" onclick="closeEditSettingsModal()"></button>
             </div>
             <ul class="nav nav-tabs mb-3">
                 <li class="nav-item">
@@ -270,7 +275,8 @@
                     <div class="button-container">
                         <div>
                             <button id="editAction" class="btn btn-primary mb-2 w-100" onclick="handleAction()">Add</button>
-                            <button id="editDelete" class="btn btn-danger w-100 mb-3" onclick="handleDelete()" disabled>Delete</button>
+                            <button id="editDelete" class="btn btn-danger w-100 mb-2" onclick="handleDelete()" disabled>Delete</button>
+                            <button id="editClear" class="btn btn-secondary w-100" onclick="ClearEditFields()" disabled>Clear</button>
                         </div>
                         <div>
                             <button id="saveEditButton" class="btn btn-success" onclick="saveEditSettings()" disabled>Save</button>
@@ -283,10 +289,10 @@
         <!-- Websites Tab -->
         <div id="websitesTab" class="tab-content">
             <div class="d-flex justify-content-between mb-2">
-                <button id="toggleTabButton" class="btn btn-outline-secondary" onclick="toggleTab()">Open Custom Search</button>
+                <button class="btn btn-outline-secondary" onclick="toggleTab()">Open Custom Search</button>
                 <div>
                     <input type="file" id="importInput" accept=".xlsx" style="display: none;" onchange="importWebsites()">
-                    <label for="importInput" class="btn btn-outline-warning me-2" title="Works only for 'websites.xlsx' file (max 16MB)">Import</label>
+                    <label for="importInput" class="btn btn-outline-warning me-2" title="works only for 'websites.xlsx' file (max 16MB)">Import</label>
                     <button id="exportBtn" class="btn btn-outline-success me-2" onclick="handleExport()">Export</button>
                     <button id="fetchButton" class="btn btn-outline-primary" onclick="loadWebsites()">Fetch</button>
                 </div>
@@ -320,27 +326,23 @@
         totalPages = 0,
         groupedResults = [],
         preloadedPages = {}, // stores preloaded pages to avoid fetching them again
-        proxiedDomains = new Set(),
-        settings = {};
+        proxiedDomains = new Set(); // tracks which domains require proxy
 
     // Websites Preview variables
     let websitesResults = {},
         itemsPerPage = 10,
         currentCategory = '',
-        websitesCurrentPage = 0,
-        websitesTotalPages = 0,
+        webCurrentPage = 0,
+        webTotalPages = 0,
         websitesNotLoaded = true,
         exportCooldown = false;
-    
-    // Edit settings state
-    let currentEditTab = 'engine',
+
+    // Settings variables
+    let settings = {},
+        currentEditTab = 'engine',
         selectedItem = null,
-        pendingChanges = {
-            engine: { add: [], update: [], delete: [] },
-            api: { add: [], update: [], delete: [] },
-            proxy: { add: [], update: [], delete: [] }
-        };
-    
+        pendingChanges = { add: [], upd: [], del: [] };
+
     // [DEBUG]: reference variables for debugging
     // let R = [], PP = preloadedPages;
     // Object.defineProperty(window, "PD", { get: () => proxiedDomains }); // points latest proxiedDomains
@@ -353,38 +355,39 @@
           resultsDiv = document.getElementById("searchResults"),
           webResultsDiv = document.getElementById("websitesResults"),
           loading = document.getElementById("loading"),
-          websitesLoading = document.getElementById("websitesLoading"),
+          webLoading = document.getElementById("websitesLoading"),
           msgSpan = document.getElementById("totalResults"),
-          websitesMsgSpan = document.getElementById("websitesTotal"),
+          webMsgSpan = document.getElementById("websitesTotal"),
           iframe = document.getElementById("previewFrame"),
           searchQuery = document.getElementById("searchQuery"),
           sortBy = document.getElementById("sortBy"),
           searchTab = document.getElementById("googleSearchTab"),
           websitesTab = document.getElementById("websitesTab"),
           pageNumbers = document.getElementById("pageNumbers"),
-          websitesPageNumbers = document.getElementById("websitesPageNumbers"),
-          prevButton = document.getElementById("prevButton"),
-          nextButton = document.getElementById("nextButton"),
-          websitesPrevButton = document.getElementById("websitesPrevButton"),
-          websitesNextButton = document.getElementById("websitesNextButton"),
+          webPageNumbers = document.getElementById("websitesPageNumbers"),
+          prevBtn = document.getElementById("prevButton"),
+          nextBtn = document.getElementById("nextButton"),
+          webPrevBtn = document.getElementById("websitesPrevButton"),
+          webNextBtn = document.getElementById("websitesNextButton"),
           categorySelect = document.getElementById("categorySelect"),
-          fetchButton = document.getElementById("fetchButton"),
+          fetchBtn = document.getElementById("fetchButton"),
           settingsForm = document.getElementById('settingsForm'),
           settingsModal = document.getElementById('settingsModal'),
-          settingsButton = document.getElementById('settingsButton'),
-          saveButton = document.getElementById('saveButton'),
+          settingsBtn = document.getElementById('settingsButton'),
+          saveBtn = document.getElementById('saveButton'),
           importInput = document.getElementById('importInput'),
           exportBtn = document.getElementById('exportBtn'),
           editSettingsModal = document.getElementById('editSettingsModal'),
-          editSettingsButton = document.getElementById('editSettingsButton'),
-          saveEditButton = document.getElementById('saveEditButton'),
+          editSettingsBtn = document.getElementById('editSettingsButton'),
+          saveEditBtn = document.getElementById('saveEditButton'),
           editName = document.getElementById('editName'),
           editValue = document.getElementById('editValue'),
           editList = document.getElementById('editList'),
           editAction = document.getElementById('editAction'),
-          editDelete = document.getElementById('editDelete');
+          editDelete = document.getElementById('editDelete'),
+          editClear = document.getElementById('editClear');
 
-    // Create Simple Select Options
+    // Create simple select options
     function populateOptions(elem, items, selected = null) {
         elem.innerHTML = ''; // clear existing options
         items.forEach(name => elem.appendChild(createOption(name, selected)));
@@ -435,15 +438,20 @@
             .then(response => response.json())
             .then(({results, total_results, search_time}) => {
                 loading.style.display = "none";
-                if (total_results === -1) msgSpan.innerHTML = `<p class='text-danger'>Quota exceeded for current API.</p>`;
-                else if (!results.length) msgSpan.innerHTML = `<p class='text-danger'>No results found.</p>`;
-                else msgSpan.innerHTML = `About ${total_results} results (${search_time} seconds)`;
                 // R = results; // [DEBUG]
                 groupedResults = groupByDomain(results); // group results across all pages & store them globally
                 totalPages = groupedResults.length; // Each domain gets its own page
                 populatePagination(pageNumbers, totalPages, displayResults);
                 currentPage = 0; // reset current page
-                displayResults(1);
+                const flag = total_results === -1;
+                if (flag || !totalPages) {
+                    msgSpan.innerHTML = `<p class='text-danger'>${flag ? 'Quota exceeded for current API' : 'No results found'}.</p>`;
+                    resultsDiv.innerHTML = ""; // clear previous results
+                    prevBtn.disabled = nextBtn.disabled = true;
+                } else {
+                    msgSpan.innerHTML = `About ${total_results} results (${search_time} seconds)`;
+                    displayResults(1);
+                }
             })
             .catch(error => console.error("Error fetching results:", error));
         resetPreviewFrame(); // always clear the preview frame when a new search is performed
@@ -485,25 +493,31 @@
         resultsDiv.innerHTML = "";
         resultsDiv.appendChild(domainDiv);
         if (proxiedDomains.has(domain)) { nestedItems.forEach(({ link }) => preloadPage(link)); }
-        updatePagination(pageNumbers.children, page, totalPages, prevButton, nextButton, currentPage - 1);
+        updatePagination(pageNumbers.children, page, totalPages, prevBtn, nextBtn, currentPage - 1);
         currentPage = page;
     }
 
     // Websites Tab functions
     function loadWebsites() {
-        websitesLoading.style.display = "block";
+        webLoading.style.display = "block";
         fetch("/get_websites_data")
             .then(response => response.json())
             .then(data => {
-                websitesLoading.style.display = "none";
+                webLoading.style.display = "none";
                 if (data.error) { webResultsDiv.innerHTML = "<p class='text-danger'>Error loading websites.</p>";  return; }
                 websitesResults = data;
                 const categories = Object.keys(data);
+                if (!categories.length) {
+                    webMsgSpan.innerHTML = "<p class='text-danger'>No websites data found. Please import a valid 'websites.xlsx' file first.</p>";
+                    webResultsDiv.innerHTML = webPageNumbers.innerHTML = "";
+                    fetchBtn.disabled = webPrevBtn.disabled = webNextBtn.disabled = true;
+                    return;
+                }
                 populateOptions(categorySelect, categories, categories[0]); // create category dropdown
-                websitesCurrentPage = 0;
+                webCurrentPage = 0;
                 displayWebsites(1);
                 if (websitesNotLoaded) { // change button text to "Refresh" after first load
-                    fetchButton.textContent = "Refresh";
+                    fetchBtn.textContent = "Refresh";
                     websitesNotLoaded = false;
                 }
             })
@@ -513,11 +527,11 @@
     function calculateOptimalPagination(max_limit) {
         if (max_limit <= 100) {
             itemsPerPage = Math.min(10, max_limit);
-            websitesTotalPages = Math.ceil(max_limit / itemsPerPage);
+            webTotalPages = Math.ceil(max_limit / itemsPerPage);
         } else {
             const scaleFactor = max_limit > 500 ? 1 + Math.log10(max_limit / 500) * 0.2 : 1;
             itemsPerPage = Math.ceil((max_limit / 10) * scaleFactor);
-            websitesTotalPages = Math.min(Math.ceil(max_limit / itemsPerPage), 10);
+            webTotalPages = Math.min(Math.ceil(max_limit / itemsPerPage), 10);
         }
     }
 
@@ -526,15 +540,15 @@
         const { websites, max_limit } = websitesResults[category];
         if (category !== currentCategory) {
             calculateOptimalPagination(max_limit);
-            populatePagination(websitesPageNumbers, websitesTotalPages, displayWebsites);
+            populatePagination(webPageNumbers, webTotalPages, displayWebsites);
             currentCategory = category;
-            websitesCurrentPage = 0;
-        } else if (websitesCurrentPage === page) return;
+            webCurrentPage = 0;
+        } else if (webCurrentPage === page) return;
         const startIndex = (page - 1) * itemsPerPage;
-        websitesMsgSpan.innerText = `Total: ${max_limit} websites ${max_limit > 100 ? `(${itemsPerPage} per page)` : ''}`;
+        webMsgSpan.innerText = `Total: ${max_limit} websites ${max_limit > 100 ? `(${itemsPerPage} per page)` : ''}`;
         webResultsDiv.innerHTML = "";
         if (!websites.length) { webResultsDiv.innerHTML = "<p class='text-danger'>No websites found.</p>"; return; }
-        websites.slice(startIndex, startIndex + itemsPerPage).forEach(({ title, link }, index) => {
+        websites.slice(startIndex, startIndex + itemsPerPage).forEach(({ title, link, proxy_required }, index) => {
             const itemDiv = document.createElement("div");
             itemDiv.className = "result-group";
             itemDiv.innerHTML = `
@@ -543,14 +557,10 @@
                 <i class="fas fa-copy copy-url-icon" onclick="copyToClipboard('${link}', this)" title="Copy URL"></i>
             `;
             webResultsDiv.appendChild(itemDiv);
-            try { // [NOTE]: needs testing, right now 'websites.xlsx' contains invalid URLs, will require seperate proxied_domains file/list
-                if (proxiedDomains.has(new URL(link).hostname)) preloadPage(link);
-            } catch (error) {
-                console.error(`Error processing URL "${link}":`, error);
-            }
+            if (proxy_required) preloadPage(link);
         });
-        updatePagination(websitesPageNumbers.children, page, websitesTotalPages, websitesPrevButton, websitesNextButton, websitesCurrentPage - 1);
-        websitesCurrentPage = page;
+        updatePagination(webPageNumbers.children, page, webTotalPages, webPrevBtn, webNextBtn, webCurrentPage - 1);
+        webCurrentPage = page;
     }
 
     function importWebsites() {
@@ -566,8 +576,8 @@
         .then(data => {
             if (data.error) throw new Error(data.error);
             if (data.success) {
+                fetchBtn.disabled = exportBtn.disabled = false;
                 loadWebsites(); // refresh the websites list
-                fetchButton.disabled = exportBtn.disabled = false;
                 alert('Websites imported successfully.');
             }
         })
@@ -596,8 +606,8 @@
         fetch('/export_websites', { method: 'HEAD' })
             .then(response => {
                 if (!response.ok){
-                    fetchButton.disabled = exportBtn.disabled = true;
-                    websitesMsgSpan.innerHTML = "<span class='text-danger'>No websites.xlsx file found. Please import a file first.</span>";
+                    fetchBtn.disabled = exportBtn.disabled = true;
+                    webMsgSpan.innerHTML = "<span class='text-danger'>No websites.xlsx file found. Please import a file first.</span>";
                 }
             })
             .catch(error => console.error('Error checking websites file:', error));
@@ -615,11 +625,11 @@
         }
     }
 
-    function updatePagination(buttons, current, max, prevBtn, nextBtn, activeBtnIdx) {
+    function updatePagination(buttons, current, max, _prevBtn, _nextBtn, activeBtnIdx) {
         if (activeBtnIdx !== -1) buttons[activeBtnIdx].className = "btn btn-outline-secondary mx-1"; // reset previously active button
         buttons[current - 1].className = "btn btn-primary mx-1"; // set new active button
-        prevBtn.disabled = current === 1;
-        nextBtn.disabled = current === max;
+        _prevBtn.disabled = current === 1;
+        _nextBtn.disabled = current === max;
     }
 
     // Page load functions
@@ -686,7 +696,7 @@
 
     function __resetModalDefaults() {
         settingsModal.style.display = 'none';
-        saveButton.disabled = true;
+        saveBtn.disabled = true;
     }
 
     function closeSettingsModal() {
@@ -704,7 +714,7 @@
     }
 
     function updateSaveButtonState() { // update save button state based on form changes
-        saveButton.disabled = slider.value === settings.maxQueries && apiSelect.value === settings.apiKey;
+        saveBtn.disabled = slider.value === settings.maxQueries && apiSelect.value === settings.apiKey;
     }
 
     // Edit Settings Modal functions
@@ -714,58 +724,122 @@
         switchEditTab('engine'); // default to engine tab
     }
 
-    function closeEditSettingsModal() {
-        editSettingsModal.style.display = 'none';
-        resetEditForm();
-    }
+    const closeEditSettingsModal = () => editSettingsModal.style.display = 'none';
 
     function switchEditTab(tabName) {
-        document.querySelectorAll('.nav-link').forEach(tab => tab.classList.remove('active')); // hide all tabs
-        document.getElementById(`${tabName}-tab`).classList.add('active'); // activate selected tab
         resetEditForm();
         currentEditTab = tabName;
+        document.querySelector('.nav-link.active')?.classList.remove('active'); // deactivate current tab if any
+        document.getElementById(`${tabName}-tab`).classList.add('active'); // activate selected tab
         if (tabName === 'proxy') { // configure UI for current tab type
             editName.placeholder = "Domain";
             editValue.style.display = "none";
         } else {
             editName.placeholder = "Name";
             editValue.style.display = "block";
-            editValue.placeholder = tabName === 'engine' ? "Engine ID" : "API Key";
+            editValue.placeholder = tabName === 'engine' ? "ID" : "Key";
         }
-        populateEditList(); // load appropriate data into the list
-    }
-
-    function hasUnsavedChanges() {
-        const { add, update, delete: del } = pendingChanges[currentEditTab];
-        return add.length || update.length || del.length;
-    }
-
-    function resetEditForm() {
-        editName.value = editValue.value = '';
-        saveEditButton.disabled = editAction.disabled = true;
-        pendingChanges[currentEditTab] = { add: [], update: [], delete: [] }; // clear pending changes for current tab
-        editValue.style.display = currentEditTab === 'proxy' ? "none" : "block"; // reset input field visibility based on tab
-        clearSelection();
-    }
-
-    function handleItemSelect() {
-        const selectedValue = editList.value;
-        if (selectedValue) {
-            editName.value = selectedItem = selectedValue;
-            if (currentEditTab !== 'proxy') editAction.textContent = 'Update';
-            editDelete.disabled = false;
-        }
+        let items = tabName === 'engine' ? Array.from(engineSelect.options, o => o.value) :
+                    tabName === 'api' ? Array.from(apiSelect.options, o => o.value) :
+                    Array.from(proxiedDomains);
+        populateOptions(editList, items); // load appropriate data into the list
     }
 
     function updateActionState() { // update modal states based on input fields
-        const typedName = editName.value.trim();
-        if (typedName && Array.from(editList.options).some(option => option.value === typedName)) { // select if typed name matches an option
-            editList.value = selectedItem = typedName;
-            editDelete.disabled = false;
-            if (currentEditTab === 'proxy') { editAction.disabled = true; return; } // no duplicates allowed for proxy
-            editAction.textContent = 'Update';
-        } else clearSelection(); // unselect if name is cleared or doesn't match any option
-        editAction.disabled = !(typedName && (currentEditTab === 'proxy' || editValue.value.trim()));
+        const typedName = editName.value.trim(), typedValue = editValue.value.trim();
+        if (typedName) {
+            for (const o of editList.options) if (o.value === typedName) { // select if typed name matches an option
+                editList.value = selectedItem = typedName;
+                editDelete.disabled = false;
+                editAction.disabled = currentEditTab === 'proxy' || !typedValue;
+                editAction.textContent = 'Update';
+                return;
+            }
+        } else clearSelection(); // unselect if name is cleared
+        editAction.disabled = !typedName || (editAction.textContent === 'Add' && currentEditTab !== 'proxy' && !typedValue);
+        editClear.disabled = !(typedName || typedValue);
+    }
+
+    function handleItemSelect() {
+        editName.value = selectedItem = editList.value;
+        editDelete.disabled = editClear.disabled = false;
+        editAction.textContent = 'Update';
+        editAction.disabled = true;
+        if (currentEditTab !== 'proxy') // show new values to track changes
+            editValue.value = pendingChanges.add.find(i => i.name === selectedItem)?.value ||
+                              pendingChanges.upd.find(i => i.name === selectedItem)?.value || 
+                              '';
+    }
+
+    function handleAction() { // handles Add/Update actions only
+        const name = editName.value.trim(), value = editValue.value.trim(); let idx;
+        switch (editAction.textContent) {
+            case 'Add':
+                idx = pendingChanges.del.indexOf(name);
+                if (idx === -1) pendingChanges.add.push({ name, ...(currentEditTab !== 'proxy' && {value}) }); // first time add case
+                else{ // revert delete & add to update list to account for possible value change
+                    pendingChanges.del.splice(idx, 1);
+                    if (currentEditTab !== 'proxy') pendingChanges.upd.push({ original: name, name, value });
+                }
+                const newOption = createOption(name);
+                editList.appendChild(newOption); // add new option to the list
+                newOption.selected = true; // select the new option so user can see it was added
+                break;
+            case 'Update':
+                idx = pendingChanges.add.findIndex(i => i.name === selectedItem);
+                if (idx === -1) {
+                    idx = pendingChanges.upd.findIndex(i => i.name === selectedItem);
+                    if (idx === -1) {
+                        pendingChanges.upd.push({ original: selectedItem, name, ...(currentEditTab !== 'proxy' && {value}) }); // first time update case
+                    } else { // subsequent update case
+                        if (pendingChanges.upd[idx].original === name && currentEditTab !== 'proxy' && !value) {
+                            pendingChanges.upd.splice(idx, 1); // revert update if original matches again
+                        } else { // otherwise update values
+                            pendingChanges.upd[idx].name = name;
+                            if (currentEditTab !== 'proxy') pendingChanges.upd[idx].value = value;
+                        }
+                    }
+                } else {
+                    pendingChanges.add[idx] = { name, ...(currentEditTab !== 'proxy' && { value }) }; // add and then update case
+                }
+                const selectedOption = editList.options[editList.selectedIndex];
+                selectedOption.value = selectedOption.text = name; // update selected option in the list
+        }
+        __postActionReset();
+    }
+
+    function handleDelete() {
+        if (currentEditTab !== 'proxy' && editList.options.length === 1) {
+            alert(`Cannot delete all ${currentEditTab === 'api' ? 'API' : 'Engine'}s. At least one must remain.`);
+            return;
+        }
+        let idx = pendingChanges.add.findIndex(i => i.name === selectedItem);
+        if (idx === -1) {
+            idx = pendingChanges.upd.findIndex(i => i.original === selectedItem);
+            if (idx === -1) pendingChanges.del.push(selectedItem); // first time delete case
+            else pendingChanges.upd.splice(idx, 1); // update and then delete case
+        } else {
+            pendingChanges.add.splice(idx, 1); // add and then delete case
+        }
+        editList.remove(editList.selectedIndex); // remove option from the list
+        __postActionReset();
+    }
+
+    function __postActionReset() { // common reset tasks after Add/Update/Delete
+        ClearEditFields();
+        saveEditBtn.disabled = !(pendingChanges.add.length || pendingChanges.upd.length || pendingChanges.del.length);
+    }
+
+    function resetEditForm() {
+        ClearEditFields();
+        saveEditBtn.disabled = true;
+        pendingChanges = { add: [], upd: [], del: [] }; // clear pending changes (for current tab)
+    }
+
+    function ClearEditFields(){
+        clearSelection();
+        editName.value = editValue.value = '';
+        editAction.disabled = editClear.disabled = true;
     }
 
     function clearSelection() {
@@ -775,79 +849,31 @@
         editAction.textContent = 'Add';
     }
 
-    function handleAction() { // handles Add/Update actions only
-        const name = editName.value.trim(), value = editValue.value.trim();
-        if (!name) return;
-        const action = editAction.textContent.toLowerCase();
-        if (action === 'add') {
-            pendingChanges[currentEditTab].add.push(currentEditTab === 'proxy' ? { name } : { name, value });
-        } else if (action === 'update') {
-            pendingChanges[currentEditTab].update.push(
-                currentEditTab === 'proxy' ? { original: selectedItem, name } : { original: selectedItem, name, value }
-            );
-        }
-        __postActionReset()
-    }
-
-    function handleDelete() {
-        if (!selectedItem) return;
-        if (currentEditTab !== 'proxy' && editList.options.length === 1) {
-            alert(`Cannot delete the last entry. At least one ${currentEditTab} must remain.`);
-            return;
-        }
-        pendingChanges[currentEditTab].delete.push(selectedItem);
-        __postActionReset()
-    }
-
-    function __postActionReset() { // common reset tasks after Add/Update/Delete
-        selectedItem = null;
-        editName.value = editValue.value = '';
-        editDelete.disabled = true;
-        editAction.textContent = 'Add';
-        updateActionState();
-        populateEditList(); // update the list to reflect changes
-        saveEditButton.disabled = !hasUnsavedChanges(); // enable the save button
-    }
-
     function saveEditSettings() { // save all pending changes
-        if (!hasUnsavedChanges()) return;
         const formData = new FormData();
         formData.append('type', currentEditTab);
-        formData.append('changes', JSON.stringify(pendingChanges[currentEditTab]));
+        formData.append('changes', JSON.stringify(pendingChanges));
         fetch('/update_settings', {
             method: 'POST',
-            body: formData
+            body: formData,
+            headers: {'Cache-Control': 'no-cache, no-store, must-revalidate'} // prevent caching sensitive data
         })
         .then(response => response.json())
         .then(data => {
             if (data.error) { alert(data.error); return; }
             if (currentEditTab !== 'proxy') { // handle localStorage cleanup for deleted items
                 const key = currentEditTab === 'api' ? 'apiKey' : 'searchEngine', value = localStorage.getItem(key);
-                if(value && pendingChanges[currentEditTab].delete.includes(value)) localStorage.removeItem(key);
+                if(value && pendingChanges.del.includes(value)) localStorage.removeItem(key);
             }
-            resetEditForm();
             loadSettingsOptions(); // reload settings options for the main modal
-            closeEditSettingsModal();
-            alert('Changes saved successfully!');
+            // closeEditSettingsModal(); // [NOTE]: not needed, user can continue editing & close manually
+            alert('Changes saved successfully!'); // [NOTE]: can be replaced with a non-intrusive toast notification (like floating timeout msg in top middle)
         })
         .catch(error => {
             console.error('Error saving changes:', error);
             alert('Failed to save changes. Please try again.');
         });
-    }
-
-    function populateEditList() { // populate the edit list based on current tab
-        editList.innerHTML = '';
-        let items = currentEditTab === 'engine' ? Array.from(engineSelect.options, o => o.value) :
-                    currentEditTab === 'api' ? Array.from(apiSelect.options, o => o.value) :
-                    Array.from(proxiedDomains);
-        const {add: added, delete: deleted} = pendingChanges[currentEditTab];
-        if(added.length || deleted.length) { // apply pending changes if any exist
-            const deleteSet = new Set(deleted);
-            items = items.filter(name => !deleteSet.has(name));
-            added.forEach(item => items.includes(item.name) || items.push(item.name));
-        }
-        populateOptions(editList, items);
+        resetEditForm();
     }
 
     // Load settings on page load
@@ -879,25 +905,39 @@
     checkWebsitesFile();
     loadSettingsOptions();
     slider.addEventListener('input', updateSlider);
-    prevButton.addEventListener('click', () => displayResults(currentPage - 1));
-    nextButton.addEventListener('click', () => displayResults(currentPage + 1));
-    websitesPrevButton.addEventListener('click', () => displayWebsites(websitesCurrentPage - 1));
-    websitesNextButton.addEventListener('click', () => displayWebsites(websitesCurrentPage + 1));
+    prevBtn.addEventListener('click', () => displayResults(currentPage - 1));
+    nextBtn.addEventListener('click', () => displayResults(currentPage + 1));
+    webPrevBtn.addEventListener('click', () => displayWebsites(webCurrentPage - 1));
+    webNextBtn.addEventListener('click', () => displayWebsites(webCurrentPage + 1));
     settingsForm.addEventListener('change', updateSaveButtonState); // for dropdown
     settingsForm.addEventListener('input', updateSaveButtonState); // for slider
     editName.addEventListener('input', updateActionState);
-    editValue.addEventListener('input', updateActionState);
+    editValue.addEventListener('input', updateActionState);  
+    editName.addEventListener('keydown', e => { // handle Enter key for name input
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            currentEditTab === 'proxy'
+                ? !editAction.disabled && handleAction()
+                : editValue.focus();
+        }
+    });
+    editValue.addEventListener('keydown', e => { // handle Enter key for value input
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            !editAction.disabled && handleAction();
+        }
+    });
     document.getElementById('searchForm').addEventListener('submit', function(event) { // to make search on Enter key
         event.preventDefault(); performSearch(1);
     });
     document.addEventListener('click', event => { // close settings modal on any click outside
         if (settingsModal.style.display === 'block' &&
             !settingsModal.contains(event.target) &&
-            !settingsButton.contains(event.target))
+            !settingsBtn.contains(event.target))
                 closeSettingsModal(); // cancel changes and close
         if (editSettingsModal.style.display === 'block' &&
             !editSettingsModal.contains(event.target) &&
-            !editSettingsButton.contains(event.target)) {
+            !editSettingsBtn.contains(event.target)) {
             closeEditSettingsModal();
         }
     });
