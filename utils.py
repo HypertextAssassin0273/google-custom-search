@@ -62,7 +62,7 @@ def update_env_file(file_path, env_data, changes):
     for name in changes.get('del', []):
         env_data.pop(name)
     update_map = {upd.get('original'): (upd.get('name'), upd.get('value')) for upd in changes.get('upd', [])}  
-    env_data = {  # rebuild dict with renamed keys, preserving order, O(n) complexity
+    env_data = {  # rebuild dict with renamed keys to preserve order, O(n) complexity
         (upd := update_map.get(k, (k, None)))[0]: upd[1] or v  # update entry if in map, retain original otherwise
         for k, v in env_data.items()
     }

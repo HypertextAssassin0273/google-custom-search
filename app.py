@@ -51,7 +51,7 @@ adapter = HTTPAdapter(
     pool_connections=20,  # maps unique domains
     pool_maxsize=40       # maps connections per domain
 )
-proxy_session.mount("http://", adapter)  # [NOTE]: will be removed if no non-secure websites are present in CSE
+proxy_session.mount("http://", adapter)
 proxy_session.mount("https://", adapter)
 
 # Error response handlers
