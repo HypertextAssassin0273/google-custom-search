@@ -30,7 +30,7 @@ def load_proxied_domains():
     try:
         with open(DOM_PATH, 'r') as f:
             return [l for line in f if (l := line.strip())]  # perfect walrus-operator ':=' usage
-    except FileNotFoundError: ...  # file doesn't exist yet
+    except FileNotFoundError: ...  # file will be created on first update anyway, so ignore
     except Exception as e: app.logger.error(f"\n\n[ERROR]: loading proxied domains -> {e}\n----------\n")
     return []
 
