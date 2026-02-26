@@ -31,13 +31,10 @@
 
     <style>
         /* Two-pane Layout */
-        .container-fluid {
-            display: flex;
-            height: 100vh;
-        }
+        .main-container { display: flex; height: 100vh; width: 100%; position: relative; overflow: hidden; }
         .left-pane {
-            width: 50%;
-            padding: 15px;
+            flex: 1;
+            padding: 10px;
             overflow-y: auto;
             border-right: 1px solid #ccc;
             position: relative; /* For modal positioning */
@@ -49,14 +46,27 @@
             -webkit-transform: translateZ(0);
             will-change: scroll-position;
         }
-        .right-pane {
-            width: 50%;
-            padding: 15px;
+        .right-pane { flex: 1; padding: 0; position: relative; overflow: hidden; }
+        .iframe-container { width: 100%; height: 100%; border: none; }
+
+        /* Preview-controls-panel Styles */
+        .preview-controls {
+            position: absolute;
+            bottom: 15px; right: 20px; /* avoids overlapping with scrollbar */
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            opacity: 0;
+            z-index: 999;
+            transition: opacity 0.15s ease-in-out;
         }
-        .iframe-container {
-            width: 100%;
-            height: 100%;
-            border: none;
+        .preview-controls button { width: 36px; height: 36px; padding: 0; }
+
+        @media (hover: hover) and (pointer: fine) { /* Desktop: show when hovering controls */
+            .preview-controls:hover { opacity: 1; }
+        }
+        @media (hover: none) and (pointer: coarse) { /* Touch: always visible */
+            .preview-controls { opacity: 1; }
         }
 
         /* Search-result Styles */
@@ -136,16 +146,15 @@
         .settings-modal {
             display: none;
             position: absolute;
-            top: 15px; /* Adjust as needed */
-            right: 15px; /* Position over left pane */
-            background: white;
-            padding: 20px;
-            border: 1px solid #ccc;
-            z-index: 1000;
-            width: auto; /* Fit to content width */
-            max-width: calc(100%); /* Prevent overflow */
+            top: 10px;
+            margin-left: 10px; margin-right: 10px;
+            width: calc(100% - 20px);
             height: auto; /* Fit to content height */
+            padding: 12px;
+            background: white;
+            border: 1px solid #ccc;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
         }
 
         /* Edit-Settings Modal Styles */
@@ -179,8 +188,8 @@
 </head>
 <body>
 
-<div class="container-fluid">
-    <!-- Left pane: Toggle and content -->
+<div class="main-container">
+    <!-- Left pane: toggle and content -->
     <div class="left-pane">
         <!-- Google Custom Search Tab -->
         <div id="googleSearchTab" class="tab-content active">
@@ -314,9 +323,16 @@
         </div>
     </div>
 
-    <!-- Right pane: Result preview -->
+    <!-- Right pane: result preview -->
     <div class="right-pane">
         <iframe id="previewFrame" class="iframe-container"></iframe>
+    </div>
+
+    <!-- Preview Control Panel -->
+    <div id="previewControls" class="preview-controls">
+        <button id="btnFull" class="btn btn-sm btn-outline-secondary" onclick="setPreviewMode('full')" title="Full Preview"><i class="fas fa-expand"></i></button>
+        <button id="btnHalf" class="btn btn-sm btn-outline-secondary" onclick="setPreviewMode('half')" title="Split View"><i class="fas fa-columns"></i></button>
+        <button id="btnHide" class="btn btn-sm btn-outline-secondary" onclick="setPreviewMode('hide')" title="Hide Preview"><i class="fas fa-eye-slash"></i></button>
     </div>
 </div>
 
@@ -348,7 +364,12 @@
     // Object.defineProperty(window, "PD", { get: () => proxiedDomains }); // points latest proxiedDomains
 
     // fixed DOM elements
-    const slider = document.getElementById('pagesSlider'),
+    const leftPane = document.querySelector('.left-pane'),
+          rightPane = document.querySelector('.right-pane'),
+          btnFull = document.getElementById('btnFull'),
+          btnHalf = document.getElementById('btnHalf'),
+          btnHide = document.getElementById('btnHide'),
+          slider = document.getElementById('pagesSlider'),
           sliderValue = document.getElementById('pagesValue'),
           apiSelect = document.getElementById('apiSelect'),
           engineSelect = document.getElementById('searchEngineSelect'),
@@ -404,6 +425,37 @@
     function resetPreviewFrame(){
         iframe.removeAttribute('src');
         iframe.removeAttribute('srcdoc');
+    }
+
+    // Preview layout controller
+    function setPreviewMode(mode){
+        [btnFull, btnHalf, btnHide].forEach(btn => {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-outline-secondary');
+            btn.disabled = false;
+        });
+        switch(mode){
+            case 'full':
+                leftPane.style.display = 'none';
+                rightPane.style.display = '';
+                activateButton(btnFull);
+                break;
+            case 'half':
+                leftPane.style.display = rightPane.style.display = '';
+                activateButton(btnHalf);
+                break;
+            case 'hide':
+                leftPane.style.display = '';
+                rightPane.style.display = 'none';
+                activateButton(btnHide);
+                break;
+        }
+    }
+
+    function activateButton(btn){
+        btn.classList.remove('btn-outline-secondary');
+        btn.classList.add('btn-primary');
+        btn.disabled = true;
     }
 
     // Toggle tab and update button text
@@ -657,21 +709,9 @@
 
     // Clipboard utility functions
     function copyToClipboard(url, iconElement) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {  // check if clipboard api is available
-            navigator.clipboard.writeText(url).then(() => {
-                showCopySuccess(iconElement); return;
-            }).catch(err => console.error('Failed to copy URL:', err));
-        }
-        // Fallback on failure
-        const textArea = document.createElement('textarea');
-        textArea.value = url;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-999999px';
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-        showCopySuccess(iconElement);
+        navigator.clipboard.writeText(url)
+            .then(() => showCopySuccess(iconElement))
+            .catch(err => console.error('Failed to copy URL:', err));
     }
 
     function showCopySuccess(iconElement) {
@@ -904,6 +944,7 @@
     // Initialize on DOM load
     checkWebsitesFile();
     loadSettingsOptions();
+    setPreviewMode('half');
     slider.addEventListener('input', updateSlider);
     prevBtn.addEventListener('click', () => displayResults(currentPage - 1));
     nextBtn.addEventListener('click', () => displayResults(currentPage + 1));
