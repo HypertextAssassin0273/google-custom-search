@@ -493,7 +493,6 @@
         resultsDiv.innerHTML = "";
         resultsDiv.appendChild(domainDiv);
         if (proxiedDomains.has(domain)) nestedItems.forEach(({ link }) => preloadPage(link));
-        else nestedItems.forEach(({ link }) => { if (link.startsWith('http://')) preloadPage(link); }); // preload http urls (to avoid mixed content errors)
         updatePagination(pageNumbers.children, page, totalPages, prevBtn, nextBtn, currentPage - 1);
         currentPage = page;
     }
@@ -649,14 +648,6 @@
     function loadPage(url) {
         if (preloadedPages[url]) {
             iframe.srcdoc = preloadedPages[url];
-        } else if (url.startsWith('http://')) { // preload not ready yet, fetch on demand
-            fetch(`/proxy?url=${encodeURIComponent(url)}`)
-                .then(response => {
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    return response.text();
-                })
-                .then(html => iframe.srcdoc = preloadedPages[url] = html)
-                .catch(error => console.error(`Error loading ${url}:`, error));
         } else {
             // console.log("Page not preloaded. Fetching from server...");
             iframe.removeAttribute("srcdoc"); // remove srcdoc to ensure src takes effect

@@ -157,9 +157,8 @@ def proxy():
     try:
         response = proxy_session.get(url, headers=headers, timeout=10) # [NOTE]: timeout may need some adjustments (for edge cases)
         response.raise_for_status()  # raises HTTPError for 4xx/5xx statuses
-        domain = match(r"https?://[^/]+", url).group(0).replace('http://', 'https://')  # extract base domain & ensure it's https
-        html = sub(r'http://', 'https://', response.text)  # [OPTIONAL]: rewrite all http to https (to avoid mixed content errors)
-        return sub(r"(<head[^>]*>)", rf"\1<base href='{domain}/'>", html, count=1)  # fix relative links by injecting <base> tag
+        domain = match(r"https?://[^/]+", url).group(0)  # extract base domain
+        return sub(r"(<head[^>]*>)", rf"\1<base href='{domain}/'>", response.text, count=1) # fix relative links by injecting <base> tag
     except Exception as e:
         app.logger.error(f"\n\n[ERROR]: proxy -> {e}\n----------\n")
         return f"Error fetching page", 500
