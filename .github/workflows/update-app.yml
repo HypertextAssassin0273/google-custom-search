@@ -32,4 +32,5 @@ jobs:
 
 # NOTES:
 # 1) set the `SELF_HOSTED` variable to `true` in your repository settings to enable self-hosted runners.
-# 2) workflow used for updating existing app on existing VPS only.
+# 2) ensure all necessary secrets & variables are configured in the repository settings.
+# 3) workflow used for updating existing app on existing VPS only.
