@@ -971,16 +971,17 @@
     document.getElementById('searchForm').addEventListener('submit', function(event) { // to make search on Enter key
         event.preventDefault(); performSearch(1);
     });
-    document.addEventListener('click', event => { // close settings modal on any click outside
+    document.addEventListener('click', event => { // close settings modal/cancel changes on any click outside
         if (settingsModal.style.display === 'block' &&
             !settingsModal.contains(event.target) &&
-            !settingsBtn.contains(event.target))
-                closeSettingsModal(); // cancel changes and close
-        if (editSettingsModal.style.display === 'block' &&
-            !editSettingsModal.contains(event.target) &&
-            !editSettingsBtn.contains(event.target)) {
-            closeEditSettingsModal();
+            !settingsBtn.contains(event.target)){
+                closeSettingsModal();
         }
+        // if (editSettingsModal.style.display === 'block' &&
+        //     !editSettingsModal.contains(event.target) &&
+        //     !editSettingsBtn.contains(event.target)) {
+        //         closeEditSettingsModal();
+        // }
     });
 </script>
 </body>

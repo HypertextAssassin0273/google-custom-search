@@ -213,7 +213,7 @@ def update_settings():
                 # global proxied_domains  # [DEV]
                 update_proxy_file(proxied_domains, json.loads(_changes))
                 # proxied_domains = load_proxied_domains()  # [DEV]
-        signal_workers()  # [NOTE]: needs to be commented out in windows env
+        signal_workers()  # [NOTE]: works only in unix-based systems
         return {"success": True}
     except json.JSONDecodeError:
         return {"error": "Invalid JSON format"}, 400
