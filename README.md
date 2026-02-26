@@ -1,3 +1,5 @@
+# [[ DEPRECATED BRANCH ]]
+**Note:** since branch v2.4.3 has solved the issue which caused this branch to divert from main branch and is no longer needed in active development, it is now archived for future references only.
 # Google Custom Search
 
 This is a simple web application that uses the **Google Custom Search API** to search for items on mentioned websites in **selected custom search engine**. 
