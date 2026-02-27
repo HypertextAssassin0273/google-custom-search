@@ -287,6 +287,10 @@
                             <button id="editDelete" class="btn btn-danger w-100 mb-2" onclick="handleDelete()" disabled>Delete</button>
                             <button id="editClear" class="btn btn-secondary w-100" onclick="ClearEditFields()" disabled>Clear</button>
                         </div>
+                        <div class="d-flex gap-1">
+                            <button id="editMoveUp" class="btn btn-outline-secondary flex-fill" onclick="handleMoveUp()" title="Move Up" disabled><i class="fas fa-arrow-up"></i></button>
+                            <button id="editMoveDown" class="btn btn-outline-secondary flex-fill" onclick="handleMoveDown()" title="Move Down" disabled><i class="fas fa-arrow-down"></i></button>
+                        </div>
                         <div>
                             <button id="saveEditButton" class="btn btn-success" onclick="saveEditSettings()" disabled>Save</button>
                         </div>
@@ -357,6 +361,7 @@
     let settings = {},
         currentEditTab = 'engine',
         selectedItem = null,
+        pendingReorder = false,
         pendingChanges = { add: [], upd: [], del: [] };
 
     // [DEBUG]: reference variables for debugging
@@ -406,7 +411,9 @@
           editList = document.getElementById('editList'),
           editAction = document.getElementById('editAction'),
           editDelete = document.getElementById('editDelete'),
-          editClear = document.getElementById('editClear');
+          editClear = document.getElementById('editClear'),
+          editMoveUp = document.getElementById('editMoveUp'),
+          editMoveDown = document.getElementById('editMoveDown');
 
     // Create simple select options
     function populateOptions(elem, items, selected = null) {
@@ -801,6 +808,7 @@
     }
 
     function handleItemSelect() {
+        if (pendingReorder) { updateMoveButtons(); return; } // reorder in progress — update boundary buttons, ignore CRUD
         editName.value = selectedItem = editList.value;
         editDelete.disabled = editClear.disabled = false;
         editAction.textContent = 'Update';
@@ -809,6 +817,7 @@
             editValue.value = pendingChanges.add.find(i => i.name === selectedItem)?.value ||
                               pendingChanges.upd.find(i => i.name === selectedItem)?.value || 
                               '';
+        updateMoveButtons();
     }
 
     function handleAction() { // handles Add/Update actions only
@@ -868,12 +877,22 @@
     function __postActionReset() { // common reset tasks after Add/Update/Delete
         ClearEditFields();
         saveEditBtn.disabled = !(pendingChanges.add.length || pendingChanges.upd.length || pendingChanges.del.length);
+        updateMoveButtons(); // move buttons only enabled when no CRUD changes pending
+    }
+
+    function __postMoveReset() { // common reset tasks after Move Up/Down
+        pendingReorder = true;
+        saveEditBtn.disabled = false;
+        updateMoveButtons();
+        lockCRUD();
     }
 
     function resetEditForm() {
+        unlockCRUD();
         ClearEditFields();
         saveEditBtn.disabled = true;
         pendingChanges = { add: [], upd: [], del: [] }; // clear pending changes (for current tab)
+        pendingReorder = false;
     }
 
     function ClearEditFields(){
@@ -887,32 +906,65 @@
         editList.value = '';
         editDelete.disabled = true;
         editAction.textContent = 'Add';
+        editMoveUp.disabled = editMoveDown.disabled = true;
     }
 
-    function saveEditSettings() { // save all pending changes
+    function updateMoveButtons() { // enable based on selection; CRUD and reorder are mutually exclusive
+        const idx = editList.selectedIndex,
+              noSelection = !selectedItem || idx === -1;
+        editMoveUp.disabled = noSelection || idx === 0;
+        editMoveDown.disabled = noSelection || idx === editList.options.length - 1;
+    }
+
+    function lockCRUD() { // disable all CRUD controls while a reorder is pending
+        editAction.disabled = editDelete.disabled = editClear.disabled = true;
+        editName.disabled = editValue.disabled = true;
+    }
+
+    function unlockCRUD() { // re-enable inputs after reorder is cleared (resetEditForm handles button states)
+        editName.disabled = editValue.disabled = false;
+    }
+
+    function handleMoveUp() {
+        const idx = editList.selectedIndex;
+        if (idx <= 0) return;
+        editList.insertBefore(editList.options[idx], editList.options[idx - 1]);
+        editList.selectedIndex = idx - 1;
+        __postMoveReset();
+    }
+
+    function handleMoveDown() {
+        const idx = editList.selectedIndex;
+        if (idx === -1 || idx >= editList.options.length - 1) return;
+        editList.insertBefore(editList.options[idx + 1], editList.options[idx]);
+        editList.selectedIndex = idx + 1;
+        __postMoveReset();
+    }
+
+    function dispatchSave(endpoint, payloadKey, payloadVal, label, deletedKeys) { // handles the actual fetch — no branching, pure execution
         const formData = new FormData();
         formData.append('type', currentEditTab);
-        formData.append('changes', JSON.stringify(pendingChanges));
-        fetch('/update_settings', {
-            method: 'POST',
-            body: formData,
-            headers: {'Cache-Control': 'no-cache, no-store, must-revalidate'} // prevent caching sensitive data
-        })
+        formData.append(payloadKey, JSON.stringify(payloadVal));
+        fetch(endpoint, { method: 'POST', body: formData, headers: {'Cache-Control': 'no-cache, no-store, must-revalidate'} })
         .then(response => response.json())
         .then(data => {
             if (data.error) { alert(data.error); return; }
-            if (currentEditTab !== 'proxy') { // handle localStorage cleanup for deleted items
+            if (deletedKeys.length) { // handle localStorage cleanup for deleted items
                 const key = currentEditTab === 'api' ? 'apiKey' : 'searchEngine', value = localStorage.getItem(key);
-                if(value && pendingChanges.del.includes(value)) localStorage.removeItem(key);
+                if (value && deletedKeys.includes(value)) localStorage.removeItem(key);
             }
             loadSettingsOptions(); // reload settings options for the main modal
             // closeEditSettingsModal(); // [NOTE]: not needed, user can continue editing & close manually
-            alert('Changes saved successfully!'); // [NOTE]: can be replaced with a non-intrusive toast notification (like floating timeout msg in top middle)
+            alert(`${label} saved successfully!`); // [NOTE]: can be replaced with a non-intrusive toast notification
         })
-        .catch(error => {
-            console.error('Error saving changes:', error);
-            alert('Failed to save changes. Please try again.');
-        });
+        .catch(error => { console.error('Error saving settings:', error); alert('Failed to save. Please try again.'); });
+    }
+
+    function saveEditSettings() { // decides what to save, delegates execution to dispatchSave
+        pendingReorder
+            ? dispatchSave('/reorder_settings', 'order', Array.from(editList.options, o => o.value), 'Order', [])
+            : dispatchSave('/update_settings', 'changes', pendingChanges, 'Changes',
+                           currentEditTab !== 'proxy' ? [...pendingChanges.del] : []); // snapshot del before resetEditForm clears it
         resetEditForm();
     }
 

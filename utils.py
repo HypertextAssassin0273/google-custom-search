@@ -83,3 +83,16 @@ def update_proxy_file(domains, changes):
     with open(DOM_PATH, 'w') as f:
         for domain in domains:
             f.write(f"{domain}\n")
+
+def reorder_env_file(file_path, env_data, order):
+    """Rewrite a .env file with keys in the given order (reorder only, no add/delete)."""
+    with open(file_path, 'w') as f:
+        for k in order:
+            if k in env_data:  # guard against stale keys
+                f.write(f"'{k}'='{env_data[k]}'\n")
+
+def reorder_proxy_file(order):
+    """Rewrite the proxied domains file in the given order."""
+    with open(DOM_PATH, 'w') as f:
+        for domain in order:
+            f.write(f"{domain}\n")

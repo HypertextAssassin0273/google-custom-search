@@ -222,6 +222,31 @@ def update_settings():
         return {"error": str(e)}, 500
 
 
+@app.route("/reorder_settings", methods=["POST"])
+@login_required
+def reorder_settings():
+    """Reorder search engines, API keys or proxied domains."""
+    try:
+        _type = request.form.get("type")
+        _order = request.form.get("order")
+        if not (_type and _order):
+            return {"error": "Missing required parameters"}, 400
+        match _type:
+            case "engine":
+                reorder_env_file(ENG_PATH, search_engines, json.loads(_order))
+            case "api":
+                reorder_env_file(API_PATH, api_keys, json.loads(_order))
+            case "proxy":
+                reorder_proxy_file(json.loads(_order))
+        signal_workers()  # [NOTE]: works only in unix-based systems
+        return {"success": True}
+    except json.JSONDecodeError:
+        return {"error": "Invalid JSON format"}, 400
+    except Exception as e:
+        app.logger.error(f"\n\n[ERROR]: reordering settings -> {e}\n----------\n")
+        return {"error": str(e)}, 500
+
+
 if __name__ == "__main__":
     """Main entry point for the Flask application on development server (for testing purposes)."""
     app.run()
