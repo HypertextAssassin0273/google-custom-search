@@ -56,13 +56,11 @@ proxy_session.mount("https://", adapter)
 
 # Error response handlers
 @app.errorhandler(429)
-def handle_429(e):
-    return {"error": "Too many attempts. Try again later."}, 429
+def handle_429(e): return {"error": "Too many attempts. Try again later."}, 429
 
 @app.errorhandler(404)
 def handle_404(e):
-    if session.get("logged_in"):
-        return render_template("404.html")
+    if session.get("logged_in"): return render_template("404.html")
     return redirect(url_for("login"))
 
 # Protect routes with required login guard
@@ -70,8 +68,7 @@ def login_required(f):
     """Decorator to ensure user is logged in before accessing certain routes."""
     @wraps(f)
     def wrapper(*args, **kwargs):
-        if session.get("logged_in"):
-            return f(*args, **kwargs)
+        if session.get("logged_in"): return f(*args, **kwargs)
         return redirect(url_for("login"))
     return wrapper
 
@@ -80,8 +77,7 @@ def login_required(f):
 @app.route("/login")
 def login():
     """Renders the login page."""
-    if session.get("logged_in"):
-        return redirect(url_for("home"))
+    if session.get("logged_in"): return redirect(url_for("home"))
     return render_template("login.html")
 
 @app.route("/login", methods=["POST"])
@@ -147,8 +143,7 @@ def search():
 def proxy():
     """Proxy endpoint to fetch and serve pages to bypass CORS issues."""
     url = request.args.get("url")
-    if not url:
-        return "Error: No URL provided", 400
+    if not url: return "Error: No URL provided", 400
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -168,8 +163,7 @@ def proxy():
 def import_websites():
     """Import and replace websites.xlsx file with proper permissions."""
     try:
-        if 'file' not in request.files:
-            return {"error": "No file provided."}, 400
+        if 'file' not in request.files: return {"error": "No file provided."}, 400
         file = request.files['file']
         if file.filename == '' or file.filename != 'websites.xlsx':
             return {"error": "Invalid or missing websites.xlsx file."}, 400
@@ -191,59 +185,30 @@ def export_websites():
     if path.exists(WEB_PATH): return send_file(WEB_PATH, as_attachment=True)
     return {"error": "websites.xlsx file not found"}, 404
 
-@app.route("/update_settings", methods=["POST"])
+@app.route("/save_settings", methods=["POST"])
 @login_required
-def update_settings():
-    """Update search engines, API keys or proxied domains based on user changes."""
+def save_settings():
+    """Save (reorder or update) search engines, API keys, or proxied domains."""
     try:
         _type = request.form.get("type")
-        _changes = request.form.get("changes")
-        if not (_type and _changes):
-            return {"error": "Missing required parameters"}, 400
-        match _type:
-            case "engine":
-                # global search_engines  # [DEV]
-                update_env_file(ENG_PATH, search_engines, json.loads(_changes))
-                # search_engines = dotenv_values(ENG_PATH)  # [DEV]
-            case "api":
-                # global api_keys  # [DEV]
-                update_env_file(API_PATH, api_keys, json.loads(_changes))
-                # api_keys = dotenv_values(API_PATH)  # [DEV]
-            case "proxy":
-                # global proxied_domains  # [DEV]
-                update_proxy_file(proxied_domains, json.loads(_changes))
-                # proxied_domains = load_proxied_domains()  # [DEV]
+        data = json.loads((is_reorder := request.form.get("order")) or request.form.get("changes") or "null")
+        if not (_type and data): return {"error": "Missing required parameters"}, 400
+        if is_reorder:
+            match _type:
+                case "engine": write_env_file(ENG_PATH, {k: search_engines[k] for k in data})  # preserve existing values and only reorder keys
+                case "api": write_env_file(API_PATH, {k: api_keys[k] for k in data})
+                case "proxy": write_proxy_file(data)
+        else:
+            match _type:
+                case "engine": update_env_file(ENG_PATH, search_engines, data)
+                case "api": update_env_file(API_PATH, api_keys, data)
+                case "proxy": update_proxy_file(proxied_domains, data)
         signal_workers()  # [NOTE]: works only in unix-based systems
         return {"success": True}
     except json.JSONDecodeError:
         return {"error": "Invalid JSON format"}, 400
     except Exception as e:
-        app.logger.error(f"\n\n[ERROR]: updating settings -> {e}\n----------\n")
-        return {"error": str(e)}, 500
-
-
-@app.route("/reorder_settings", methods=["POST"])
-@login_required
-def reorder_settings():
-    """Reorder search engines, API keys or proxied domains."""
-    try:
-        _type = request.form.get("type")
-        _order = request.form.get("order")
-        if not (_type and _order):
-            return {"error": "Missing required parameters"}, 400
-        match _type:
-            case "engine":
-                reorder_env_file(ENG_PATH, search_engines, json.loads(_order))
-            case "api":
-                reorder_env_file(API_PATH, api_keys, json.loads(_order))
-            case "proxy":
-                reorder_proxy_file(json.loads(_order))
-        signal_workers()  # [NOTE]: works only in unix-based systems
-        return {"success": True}
-    except json.JSONDecodeError:
-        return {"error": "Invalid JSON format"}, 400
-    except Exception as e:
-        app.logger.error(f"\n\n[ERROR]: reordering settings -> {e}\n----------\n")
+        app.logger.error(f"\n\n[ERROR]: saving settings -> {e}\n----------\n")
         return {"error": str(e)}, 500
 
 

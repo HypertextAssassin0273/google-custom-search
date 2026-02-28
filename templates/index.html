@@ -946,11 +946,11 @@
         __postMoveReset();
     }
 
-    function dispatchSave(endpoint, payloadKey, payloadVal, label, deletedKeys) { // handles the actual fetch — no branching, pure execution
+    function dispatchSave(label, payload, deletedKeys) { // handles the actual fetch — no branching, pure execution
         const formData = new FormData();
         formData.append('type', currentEditTab);
-        formData.append(payloadKey, JSON.stringify(payloadVal));
-        fetch(endpoint, { method: 'POST', body: formData, headers: {'Cache-Control': 'no-cache, no-store, must-revalidate'} })
+        formData.append(label.toLowerCase(), JSON.stringify(payload));
+        fetch('/save_settings', { method: 'POST', body: formData, headers: {'Cache-Control': 'no-cache, no-store, must-revalidate'} })
         .then(response => response.json())
         .then(data => {
             if (data.error) { alert(data.error); return; }
@@ -967,8 +967,8 @@
 
     function saveEditSettings() { // decides what to save, delegates execution to dispatchSave
         pendingReorder
-            ? dispatchSave('/reorder_settings', 'order', Array.from(editList.options, o => o.value), 'Order', [])
-            : dispatchSave('/update_settings', 'changes', pendingChanges, 'Changes', currentEditTab !== 'proxy' ? pendingChanges.del : []);
+            ? dispatchSave('Order', Array.from(editList.options, o => o.value), [])
+            : dispatchSave('Changes', pendingChanges, currentEditTab !== 'proxy' ? pendingChanges.del : []);
         resetEditForm();
     }
 

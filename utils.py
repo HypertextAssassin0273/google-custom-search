@@ -57,6 +57,18 @@ def signal_workers():
         kill(ppid, signal.SIGHUP)  # SIGHUP -> graceful reload (workers only), SIGUSR2 -> full restart (master + workers)
         app.logger.info(f"Signaled gunicorn master (PID: {ppid}) to reload workers.")
 
+def write_env_file(file_path, data):
+    """Write a dict to an env file."""
+    with open(file_path, 'w') as f:
+        for k, v in data.items():
+            f.write(f"'{k}'='{v}'\n")
+
+def write_proxy_file(domains):
+    """Write a list of domains to the proxy domains file."""
+    with open(DOM_PATH, 'w') as f:
+        for domain in domains:
+            f.write(f"{domain}\n")
+
 def update_env_file(file_path, env_data, changes):
     """Apply add, update, delete changes to a .env file (dict-based)."""
     for name in changes.get('del', []):
@@ -68,9 +80,7 @@ def update_env_file(file_path, env_data, changes):
     }
     for add in changes.get('add', []):
         env_data[add.get('name')] = add.get('value')
-    with open(file_path, 'w') as f:  # write back
-        for k, v in env_data.items():
-            f.write(f"'{k}'='{v}'\n")
+    write_env_file(file_path, env_data)
 
 def update_proxy_file(domains, changes):
     """Apply add, update, delete changes to a proxied domains file (list-based)."""
@@ -80,19 +90,4 @@ def update_proxy_file(domains, changes):
     domains = [update_map.get(d, d) for d in domains]  # rebuild list with updated names, O(n) complexity
     for add in changes.get('add', []):
         domains.append(add.get('name'))
-    with open(DOM_PATH, 'w') as f:
-        for domain in domains:
-            f.write(f"{domain}\n")
-
-def reorder_env_file(file_path, env_data, order):
-    """Rewrite a .env file with keys in the given order (reorder only, no add/delete)."""
-    with open(file_path, 'w') as f:
-        for k in order:
-            if k in env_data:  # guard against stale keys
-                f.write(f"'{k}'='{env_data[k]}'\n")
-
-def reorder_proxy_file(order):
-    """Rewrite the proxied domains file in the given order."""
-    with open(DOM_PATH, 'w') as f:
-        for domain in order:
-            f.write(f"{domain}\n")
+    write_proxy_file(domains)
